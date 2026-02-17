@@ -2,6 +2,8 @@ package com.example.hellocompose.presentation.components
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,7 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -23,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -47,6 +56,8 @@ fun SettingsBottomSheet(
     var topP by remember(settings) { mutableFloatStateOf(settings.topP) }
     var frequencyPenalty by remember(settings) { mutableFloatStateOf(settings.frequencyPenalty) }
     var presencePenalty by remember(settings) { mutableFloatStateOf(settings.presencePenalty) }
+    val stopSequences = remember(settings) { mutableStateListOf<String>().apply { addAll(settings.stopSequences) } }
+    var stopInput by remember { mutableStateOf("") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -82,6 +93,8 @@ fun SettingsBottomSheet(
                         topP = defaults.topP
                         frequencyPenalty = defaults.frequencyPenalty
                         presencePenalty = defaults.presencePenalty
+                        stopSequences.clear()
+                        stopInput = ""
                     }) {
                         Text("Сброс")
                     }
@@ -93,7 +106,8 @@ fun SettingsBottomSheet(
                                 maxTokens = maxTokens,
                                 topP = topP,
                                 frequencyPenalty = frequencyPenalty,
-                                presencePenalty = presencePenalty
+                                presencePenalty = presencePenalty,
+                                stopSequences = stopSequences.toList()
                             )
                         )
                         onDismiss()
@@ -145,11 +159,11 @@ fun SettingsBottomSheet(
             // Max Tokens
             SettingsSlider(
                 title = "Max Tokens",
-                description = "Максимальная длина ответа",
+                description = "Максимальная длина ответа (~0.75 слова/токен)",
                 value = maxTokens.toFloat(),
                 onValueChange = { maxTokens = it.roundToInt() },
-                valueRange = 256f..8192f,
-                steps = 31,
+                valueRange = 50f..8192f,
+                steps = 0,
                 displayValue = "$maxTokens"
             )
 
@@ -188,6 +202,118 @@ fun SettingsBottomSheet(
                 valueRange = -2f..2f,
                 displayValue = "%.2f".format(presencePenalty)
             )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Stop Sequences
+            StopSequencesSection(
+                sequences = stopSequences,
+                input = stopInput,
+                onInputChange = { stopInput = it },
+                onAdd = {
+                    val trimmed = stopInput.trim()
+                    if (trimmed.isNotEmpty() && !stopSequences.contains(trimmed) && stopSequences.size < 4) {
+                        stopSequences.add(trimmed)
+                        stopInput = ""
+                    }
+                },
+                onRemove = { stopSequences.remove(it) }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun StopSequencesSection(
+    sequences: List<String>,
+    input: String,
+    onInputChange: (String) -> Unit,
+    onAdd: () -> Unit,
+    onRemove: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Column {
+                Text(
+                    text = "Stop Sequences",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = "Слово/фраза — AI остановится, встретив её (макс. 4)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = "${sequences.size}/4",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Поле ввода + кнопка добавить
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = input,
+                onValueChange = onInputChange,
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text(
+                        "Например: ---END--- или \\n\\n",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
+            AssistChip(
+                onClick = onAdd,
+                label = { Text("Добавить") },
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null
+                    )
+                },
+                enabled = input.trim().isNotEmpty() && sequences.size < 4
+            )
+        }
+
+        // Чипы добавленных стоп-слов
+        if (sequences.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                sequences.forEach { seq ->
+                    InputChip(
+                        selected = false,
+                        onClick = { onRemove(seq) },
+                        label = { Text(seq, style = MaterialTheme.typography.bodySmall) },
+                        trailingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Удалить",
+                            )
+                        }
+                    )
+                }
+            }
         }
     }
 }
