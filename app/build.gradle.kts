@@ -80,6 +80,9 @@ dependencies {
     // kotlinx.serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
 
+    // Navigation
+    implementation("androidx.navigation:navigation-compose:2.7.7")
+
     // Koin
     implementation("io.insert-koin:koin-android:3.5.3")
     implementation("io.insert-koin:koin-androidx-compose:3.5.3")

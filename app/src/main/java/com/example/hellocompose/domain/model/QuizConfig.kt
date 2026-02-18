@@ -2,8 +2,11 @@ package com.example.hellocompose.domain.model
 
 data class QuizConfig(
     val topic: QuizTopic = QuizTopic.RANDOM,
+    val subtopic: String = "",
     val difficulty: QuizDifficulty = QuizDifficulty.MEDIUM,
-    val questionCount: Int = 5
+    val questionCount: Int = 5,
+    val temperature: Float = 0.7f,
+    val maxTokens: Int = 500
 )
 
 enum class QuizTopic(val displayName: String, val prompt: String) {
@@ -13,7 +16,8 @@ enum class QuizTopic(val displayName: String, val prompt: String) {
     GEOGRAPHY("География", "по географии (страны, столицы, реки, горы)"),
     MOVIES("Кино", "по кино и сериалам"),
     TECHNOLOGY("Технологии", "по IT и технологиям"),
-    SPORTS("Спорт", "по спорту");
+    SPORTS("Спорт", "по спорту"),
+    RUSSIAN("Русский язык", "по русскому языку (орфография, пунктуация, грамматика, лексика)");
 }
 
 enum class QuizDifficulty(val displayName: String, val prompt: String) {

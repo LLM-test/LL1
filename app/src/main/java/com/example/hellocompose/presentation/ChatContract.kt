@@ -9,7 +9,9 @@ data class ChatState(
     val inputText: String = "",
     val isLoading: Boolean = false,
     val settings: ChatSettings = ChatSettings(),
-    val quizActive: Boolean = false
+    val quizActive: Boolean = false,
+    val localScore: Int = 0,
+    val totalQuestions: Int = 0
 )
 
 sealed interface ChatIntent {

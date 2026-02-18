@@ -7,6 +7,7 @@ import com.example.hellocompose.data.api.dto.QuizResponseDto
 import com.example.hellocompose.domain.model.ChatMessage
 import com.example.hellocompose.domain.model.ChatSettings
 import com.example.hellocompose.domain.model.QuizConfig
+import com.example.hellocompose.domain.model.QuizTopic
 import com.example.hellocompose.domain.usecase.SendMessageUseCase
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -46,16 +47,56 @@ class ChatViewModel(
         }
     }
 
-    private fun selectOption(optionKey: String, optionText: String) {
-        // Кнопки блокируются через isLoading — quizData трогать не нужно,
-        // иначе карточки вопроса потеряют данные и покажут сырой JSON
+    /**
+     * Пользователь выбрал вариант ответа.
+     * Оцениваем правильность локально (сравниваем с question.correct),
+     * обновляем сообщение с вопросом (добавляем selectedOption),
+     * увеличиваем счёт если верно, затем запрашиваем следующий вопрос у AI.
+     */
+    private fun selectOption(optionKey: String, @Suppress("UNUSED_PARAMETER") optionText: String) {
+        val messages = _state.value.messages
+
+        // Находим индекс последнего вопроса
+        val questionIndex = messages.indexOfLast { it.quizData is QuizResponseDto.Question }
+        if (questionIndex == -1) return
+
+        val questionMessage = messages[questionIndex]
+        val question = questionMessage.quizData as QuizResponseDto.Question
+
+        // Локальная оценка
+        val isCorrect = optionKey == question.correct
+        val newScore = if (isCorrect) _state.value.localScore + 1 else _state.value.localScore
+
+        // Отмечаем выбранный вариант на карточке вопроса
+        val updatedMessages = messages.toMutableList().also { list ->
+            list[questionIndex] = questionMessage.copy(selectedOption = optionKey)
+        }
+
+        _state.update {
+            it.copy(
+                messages = updatedMessages,
+                isLoading = true,
+                localScore = newScore
+            )
+        }
+
+        // Сообщение для AI — просто просим следующий вопрос.
+        // Передаём счёт чтобы AI мог корректно сформировать final.
+        val isLastQuestion = question.questionNumber >= question.total
+        val userContent = if (isLastQuestion) {
+            "Это был последний вопрос. Мой итоговый счёт: $newScore/${question.total}. Верни финальный результат."
+        } else {
+            "Следующий вопрос (${question.questionNumber + 1}/${question.total})."
+        }
+
         val userMessage = ChatMessage(
             role = ChatMessage.Role.USER,
-            content = "$optionKey: $optionText"
+            content = userContent
         )
         _state.update {
-            it.copy(messages = it.messages + userMessage, isLoading = true)
+            it.copy(messages = it.messages + userMessage)
         }
+
         viewModelScope.launch {
             _effect.send(ChatEffect.ScrollToBottom)
             val result = sendMessageUseCase(
@@ -69,8 +110,8 @@ class ChatViewModel(
     private fun startQuiz(config: QuizConfig) {
         val quizSettings = ChatSettings(
             systemPrompt = buildQuizSystemPrompt(config),
-            temperature = 0.7f,
-            maxTokens = 500,
+            temperature = config.temperature,
+            maxTokens = config.maxTokens,
             topP = 0.9f,
             frequencyPenalty = 0.0f,
             presencePenalty = 0.0f
@@ -87,7 +128,9 @@ class ChatViewModel(
                 inputText = "",
                 isLoading = true,
                 settings = quizSettings,
-                quizActive = true
+                quizActive = true,
+                localScore = 0,
+                totalQuestions = config.questionCount
             )
         }
 
@@ -128,8 +171,14 @@ class ChatViewModel(
             } else {
                 listOf(raw)
             }
+            // Если пришёл final — деактивируем quiz
+            val hasFinal = newMessages.any { it.quizData is QuizResponseDto.Final }
             _state.update {
-                it.copy(messages = it.messages + newMessages, isLoading = false)
+                it.copy(
+                    messages = it.messages + newMessages,
+                    isLoading = false,
+                    quizActive = if (hasFinal) false else it.quizActive
+                )
             }
             _effect.send(ChatEffect.ScrollToBottom)
         }.onFailure { error ->
@@ -148,31 +197,25 @@ class ChatViewModel(
     /**
      * Парсит ответ AI в список ChatMessage.
      *
-     * AI может вернуть:
-     * - одиночный объект: { "type": "question", ... }
-     * - массив из двух объектов: [{ "type": "answer", ... }, { "type": "question/final", ... }]
-     *
-     * Используем библиотечный полиморфный десериализатор kotlinx.serialization
-     * через classDiscriminator = "type", настроенный в jsonParser.
+     * AI возвращает только type=question или type=final.
+     * Одиночный объект: { "type": "question", ... }
+     * Массив (на всякий случай): [{ "type": "question", ... }]
      */
     private fun parseQuizMessages(raw: ChatMessage): List<ChatMessage> {
         return try {
             val jsonText = extractJsonBlock(raw.content)
             Log.d("QuizParser", "jsonText = $jsonText")
 
-            // Парсим как JsonElement чтобы различить объект и массив
             val jsonElement = jsonParser.parseToJsonElement(jsonText)
 
             when (jsonElement) {
                 is JsonArray -> {
-                    // Массив — [answer, question] или [answer, final]
                     jsonElement.map { element ->
                         val dto = jsonParser.decodeFromJsonElement<QuizResponseDto>(element)
                         raw.copy(content = element.toString(), quizData = dto)
                     }
                 }
                 is JsonObject -> {
-                    // Одиночный объект — { "type": "question", ... }
                     val dto = jsonParser.decodeFromJsonElement<QuizResponseDto>(jsonElement)
                     listOf(raw.copy(quizData = dto))
                 }
@@ -218,7 +261,6 @@ class ChatViewModel(
 
     /**
      * Считает количество JSON-объектов верхнего уровня в строке.
-     * Используется чтобы не оборачивать одиночный { } в массив.
      */
     private fun countTopLevelObjects(text: String): Int {
         var count = 0
@@ -240,7 +282,6 @@ class ChatViewModel(
 
     /**
      * Извлекает все JSON-объекты верхнего уровня из строки.
-     * Корректно обрабатывает вложенные объекты и строки с экранированием.
      */
     private fun extractTopLevelObjects(text: String): List<String> {
         val result = mutableListOf<String>()
@@ -267,13 +308,24 @@ class ChatViewModel(
         return result
     }
 
-    private fun buildQuizSystemPrompt(config: QuizConfig): String = """
+    private fun buildQuizSystemPrompt(config: QuizConfig): String {
+        return if (config.topic == QuizTopic.RUSSIAN) {
+            buildRussianQuizPrompt(config)
+        } else {
+            buildGeneralQuizPrompt(config)
+        }
+    }
+
+    private fun buildGeneralQuizPrompt(config: QuizConfig): String = """
 Ты — ведущий мини-викторины. Отвечай ТОЛЬКО валидным JSON без markdown, без пояснений, без текста вне JSON.
 
 ПРАВИЛА:
-- Всего ${config.questionCount} вопросов ${config.topic.prompt}
+- Всего ${config.questionCount} вопросов ${config.topic.prompt}${if (config.subtopic.isNotBlank()) ", конкретная подтема: «${config.subtopic}»" else ""}
 - Сложность: ${config.difficulty.prompt}
 - Задавай ПО ОДНОМУ вопросу за раз
+- Правильность ответов оценивается на стороне приложения — тебе не нужно возвращать type=answer
+- Когда пользователь просит следующий вопрос — просто верни следующий вопрос
+- Когда пользователь просит финальный результат — верни type=final
 
 ФОРМАТ — вопрос (type=question):
 {
@@ -282,28 +334,57 @@ class ChatViewModel(
   "total": ${config.questionCount},
   "question": "<текст вопроса>",
   "options": { "A": "<вариант>", "B": "<вариант>", "C": "<вариант>", "D": "<вариант>" },
-  "correct": "<A|B|C|D>"
-}
-
-ФОРМАТ — оценка ответа (type=answer), возвращай ВМЕСТЕ со следующим вопросом:
-Если вопросы ещё остались — верни JSON-массив из двух объектов: [answer, question].
-Если это был последний вопрос — верни JSON-массив из двух объектов: [answer, final].
-
-ФОРМАТ — оценка ответа:
-{
-  "type": "answer",
-  "correct": <true|false>,
-  "correct_option": "<A|B|C|D>",
-  "correct_text": "<текст правильного варианта>",
-  "explanation": "<краткое объяснение, 1 предложение>",
-  "score": <текущий счёт>,
-  "total": ${config.questionCount}
+  "correct": "<A|B|C|D>",
+  "explanation": "<краткое объяснение правильного ответа, 1 предложение>"
 }
 
 ФОРМАТ — финальный итог (type=final):
 {
   "type": "final",
-  "score": <итоговый счёт>,
+  "score": <счёт из сообщения пользователя>,
+  "total": ${config.questionCount},
+  "comment": "<короткий итоговый комментарий>"
+}
+
+ВАЖНО: отвечай ТОЛЬКО JSON, никакого другого текста.
+    """.trimIndent()
+
+    private fun buildRussianQuizPrompt(config: QuizConfig): String = """
+Ты — ведущий викторины по русскому языку. Отвечай ТОЛЬКО валидным JSON без markdown, без пояснений, без текста вне JSON.
+
+ПРАВИЛА:
+- Всего ${config.questionCount} вопросов${if (config.subtopic.isNotBlank()) " по теме «${config.subtopic}»" else " по разным темам (орфография, пунктуация, грамматика, лексика)"}
+- Сложность: ${config.difficulty.prompt}
+- Задавай ПО ОДНОМУ вопросу за раз
+- Правильность ответов оценивается на стороне приложения — тебе не нужно возвращать type=answer
+- Когда пользователь просит следующий вопрос — просто верни следующий вопрос
+- Когда пользователь просит финальный результат — верни type=final
+
+ВАЖНЫЕ ПРАВИЛА ДЛЯ ФОРМАТА ВОПРОСОВ:
+- Для орфографии: показывай слово с пропуском буквы/букв в виде __, варианты — только вставляемые буквы или буквосочетания.
+  Пример вопроса: "Вставьте пропущенную букву: пр__образование"
+  Пример вариантов: A: "е", B: "и", C: "ы", D: "а"
+- Для пунктуации: показывай предложение с пропущенным знаком в виде __, варианты — названия знаков или "знак не нужен".
+  Пример вопроса: "Расставьте знак: Он пришёл__ когда уже стемнело."
+  Пример вариантов: A: "запятая", B: "тире", C: "двоеточие", D: "знак не нужен"
+- Для грамматики и теории: задавай прямой вопрос о правиле, варианты — короткие формулировки правил или примеры.
+- НЕЛЬЗЯ давать варианты в виде готовых слов/предложений с уже расставленными буквами/знаками — правильный ответ не должен быть очевиден из написания варианта.
+
+ФОРМАТ — вопрос (type=question):
+{
+  "type": "question",
+  "question_number": <N>,
+  "total": ${config.questionCount},
+  "question": "<текст вопроса с __ вместо пропуска>",
+  "options": { "A": "<только вставляемая часть>", "B": "<только вставляемая часть>", "C": "<только вставляемая часть>", "D": "<только вставляемая часть>" },
+  "correct": "<A|B|C|D>",
+  "explanation": "<краткое объяснение правила, 1 предложение>"
+}
+
+ФОРМАТ — финальный итог (type=final):
+{
+  "type": "final",
+  "score": <счёт из сообщения пользователя>,
   "total": ${config.questionCount},
   "comment": "<короткий итоговый комментарий>"
 }

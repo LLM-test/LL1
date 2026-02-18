@@ -7,13 +7,9 @@ data class ChatMessage(
     val content: String,
     val timestamp: Long = System.currentTimeMillis(),
     // Для quiz-режима — распарсенный DTO; null для обычных сообщений
-    val quizData: QuizResponseDto? = null
+    val quizData: QuizResponseDto? = null,
+    // Ключ варианта, который выбрал пользователь (A/B/C/D); null — ещё не отвечал
+    val selectedOption: String? = null
 ) {
-    // Вычисляемое свойство для совместимости с QuizOptionsBubble
-    val options: List<String>?
-        get() = (quizData as? QuizResponseDto.Question)
-            ?.options?.toList()
-            ?.map { (key, value) -> "$key: $value" }
-
     enum class Role { USER, ASSISTANT, ERROR }
 }

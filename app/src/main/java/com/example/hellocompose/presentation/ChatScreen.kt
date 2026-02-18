@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -40,7 +41,10 @@ import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatScreen(viewModel: ChatViewModel) {
+fun ChatScreen(
+    viewModel: ChatViewModel,
+    onNavigateToExperts: () -> Unit = {}
+) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
 
@@ -70,6 +74,13 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ),
                 actions = {
+                    IconButton(onClick = onNavigateToExperts) {
+                        Icon(
+                            imageVector = Icons.Default.Groups,
+                            contentDescription = "Эксперты",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                     IconButton(onClick = { showQuiz = true }) {
                         Icon(
                             imageVector = Icons.Default.Quiz,
@@ -108,7 +119,9 @@ fun ChatScreen(viewModel: ChatViewModel) {
                     if (message.quizData != null) {
                         QuizMessageBubble(
                             quizData = message.quizData,
-                            onOptionSelected = if (!state.isLoading) { key, text ->
+                            selectedOption = message.selectedOption,
+                            localScore = state.localScore,
+                            onOptionSelected = if (!state.isLoading && message.selectedOption == null) { key, text ->
                                 viewModel.handleIntent(ChatIntent.SelectQuizOption(key, text))
                             } else null
                         )

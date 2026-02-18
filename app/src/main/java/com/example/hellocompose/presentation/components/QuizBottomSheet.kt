@@ -22,6 +22,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -30,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -43,6 +45,54 @@ import com.example.hellocompose.domain.model.QuizDifficulty
 import com.example.hellocompose.domain.model.QuizTopic
 import kotlin.math.roundToInt
 
+@Composable
+private fun QuizSlider(
+    title: String,
+    description: String,
+    displayValue: String,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Bottom
+        ) {
+            Column {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Text(
+                text = displayValue,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun QuizBottomSheet(
@@ -51,8 +101,11 @@ fun QuizBottomSheet(
     onStart: (QuizConfig) -> Unit
 ) {
     var selectedTopic by remember { mutableStateOf(QuizTopic.RANDOM) }
+    var subtopic by remember { mutableStateOf("") }
     var selectedDifficulty by remember { mutableStateOf(QuizDifficulty.MEDIUM) }
     var questionCount by remember { mutableFloatStateOf(5f) }
+    var temperature by remember { mutableFloatStateOf(0.7f) }
+    var maxTokens by remember { mutableIntStateOf(500) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -99,6 +152,34 @@ fun QuizBottomSheet(
                     )
                 }
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Подтема
+            OutlinedTextField(
+                value = subtopic,
+                onValueChange = { subtopic = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = {
+                    Text(
+                        text = when (selectedTopic) {
+                            QuizTopic.RUSSIAN -> "Например: н и нн в причастиях"
+                            QuizTopic.SCIENCE -> "Например: законы термодинамики"
+                            QuizTopic.HISTORY -> "Например: Вторая мировая война"
+                            QuizTopic.GEOGRAPHY -> "Например: реки Азии"
+                            QuizTopic.MOVIES -> "Например: фильмы Кубрика"
+                            QuizTopic.TECHNOLOGY -> "Например: алгоритмы сортировки"
+                            QuizTopic.SPORTS -> "Например: Олимпийские игры"
+                            QuizTopic.RANDOM -> "Уточните тему (необязательно)..."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                },
+                label = { Text("Подтема (необязательно)") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp)
+            )
 
             Spacer(modifier = Modifier.height(20.dp))
 
@@ -189,7 +270,31 @@ fun QuizBottomSheet(
                 )
             )
 
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Temperature
+            QuizSlider(
+                title = "Temperature",
+                description = "Креативность вопросов",
+                displayValue = "%.2f".format(temperature),
+                value = temperature,
+                onValueChange = { temperature = it },
+                valueRange = 0f..2f
+            )
+
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Max Tokens
+            QuizSlider(
+                title = "Max Tokens",
+                description = "Длина одного ответа AI",
+                displayValue = "$maxTokens",
+                value = maxTokens.toFloat(),
+                onValueChange = { maxTokens = it.roundToInt() },
+                valueRange = 100f..2000f
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
 
             // Кнопка старт
             Button(
@@ -197,8 +302,11 @@ fun QuizBottomSheet(
                     onStart(
                         QuizConfig(
                             topic = selectedTopic,
+                            subtopic = subtopic.trim(),
                             difficulty = selectedDifficulty,
-                            questionCount = questionCount.roundToInt()
+                            questionCount = questionCount.roundToInt(),
+                            temperature = temperature,
+                            maxTokens = maxTokens
                         )
                     )
                     onDismiss()

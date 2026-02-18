@@ -1,5 +1,6 @@
 package com.example.hellocompose.data.api.dto
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonClassDiscriminator
@@ -10,17 +11,16 @@ import kotlinx.serialization.json.JsonClassDiscriminator
  *
  * Вопрос:
  * { "type": "question", "question_number": 1, "total": 5, "question": "...",
- *   "options": { "A": "...", "B": "...", "C": "...", "D": "..." }, "correct": "B" }
- *
- * Оценка ответа:
- * { "type": "answer", "correct": true, "correct_option": "B", "correct_text": "...",
- *   "explanation": "...", "score": 1, "total": 5 }
+ *   "options": { "A": "...", "B": "...", "C": "...", "D": "..." },
+ *   "correct": "B", "explanation": "..." }
  *
  * Итог:
  * { "type": "final", "score": 4, "total": 5, "comment": "..." }
  *
- * После ответа пользователя AI возвращает JSON-массив: [answer, question] или [answer, final]
+ * Ответ пользователя оценивается локально (сравниваем с полем correct).
+ * AI больше не возвращает type=answer — только type=question или type=final.
  */
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 @JsonClassDiscriminator("type")
 sealed class QuizResponseDto {
@@ -32,18 +32,8 @@ sealed class QuizResponseDto {
         @SerialName("total") val total: Int,
         @SerialName("question") val question: String,
         @SerialName("options") val options: Options,
-        @SerialName("correct") val correct: String
-    ) : QuizResponseDto()
-
-    @Serializable
-    @SerialName("answer")
-    data class Answer(
-        @SerialName("correct") val correct: Boolean,
-        @SerialName("correct_option") val correctOption: String,
-        @SerialName("correct_text") val correctText: String,
-        @SerialName("explanation") val explanation: String,
-        @SerialName("score") val score: Int,
-        @SerialName("total") val total: Int
+        @SerialName("correct") val correct: String,
+        @SerialName("explanation") val explanation: String = ""
     ) : QuizResponseDto()
 
     @Serializable

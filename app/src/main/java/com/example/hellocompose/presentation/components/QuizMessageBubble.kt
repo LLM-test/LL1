@@ -20,37 +20,50 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.hellocompose.data.api.dto.QuizResponseDto
 
 @Composable
 fun QuizMessageBubble(
     quizData: QuizResponseDto,
+    selectedOption: String? = null,
+    localScore: Int = 0,
     onOptionSelected: ((optionKey: String, optionText: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     when (quizData) {
-        is QuizResponseDto.Question -> QuizQuestionCard(quizData, onOptionSelected, modifier)
-        is QuizResponseDto.Answer -> QuizAnswerCard(quizData, modifier)
-        is QuizResponseDto.Final -> QuizFinalCard(quizData, modifier)
+        is QuizResponseDto.Question -> QuizQuestionCard(
+            data = quizData,
+            selectedOption = selectedOption,
+            onOptionSelected = onOptionSelected,
+            modifier = modifier
+        )
+        is QuizResponseDto.Final -> QuizFinalCard(
+            data = quizData,
+            localScore = localScore,
+            modifier = modifier
+        )
     }
 }
+
+private val CorrectGreen = Color(0xFF2E7D32)
+private val CorrectGreenBg = Color(0xFF1B5E20).copy(alpha = 0.12f)
 
 @Composable
 private fun QuizQuestionCard(
     data: QuizResponseDto.Question,
+    selectedOption: String?,
     onOptionSelected: ((String, String) -> Unit)?,
     modifier: Modifier = Modifier
 ) {
-    var selectedKey by remember { mutableStateOf<String?>(null) }
+    val answered = selectedOption != null
+    val isCorrect = answered && selectedOption == data.correct
 
     Column(
         modifier = modifier
@@ -76,30 +89,42 @@ private fun QuizQuestionCard(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(12.dp))
+
         // Варианты ответа
         data.options.toList().forEach { (key, value) ->
-            val isSelected = selectedKey == key
+            val isSelected = selectedOption == key
+            val isCorrectOption = key == data.correct
+
+            // Цвета после ответа
+            val targetContainerColor = when {
+                !answered -> if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                             else MaterialTheme.colorScheme.surface
+                isCorrectOption -> CorrectGreenBg
+                isSelected -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                else -> MaterialTheme.colorScheme.surface
+            }
+            val targetBorderColor = when {
+                !answered -> if (isSelected) MaterialTheme.colorScheme.primary
+                             else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                isCorrectOption -> CorrectGreen
+                isSelected -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+            }
+
             val containerColor by animateColorAsState(
-                targetValue = if (isSelected)
-                    MaterialTheme.colorScheme.primaryContainer
-                else
-                    MaterialTheme.colorScheme.surface,
-                animationSpec = tween(200),
+                targetValue = targetContainerColor,
+                animationSpec = tween(300),
                 label = "opt_bg_$key"
             )
             val borderColor by animateColorAsState(
-                targetValue = if (isSelected)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
-                animationSpec = tween(200),
+                targetValue = targetBorderColor,
+                animationSpec = tween(300),
                 label = "opt_border_$key"
             )
 
             Surface(
                 onClick = {
-                    if (selectedKey == null && onOptionSelected != null) {
-                        selectedKey = key
+                    if (!answered && onOptionSelected != null) {
                         onOptionSelected(key, value)
                     }
                 },
@@ -109,19 +134,22 @@ private fun QuizQuestionCard(
                 shape = RoundedCornerShape(10.dp),
                 color = containerColor,
                 border = BorderStroke(1.dp, borderColor),
-                enabled = selectedKey == null && onOptionSelected != null
+                enabled = !answered && onOptionSelected != null
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Кружок с буквой
+                    val circleColor = when {
+                        !answered && isSelected -> MaterialTheme.colorScheme.primary
+                        answered && isCorrectOption -> CorrectGreen
+                        answered && isSelected -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                    }
                     Surface(
                         shape = CircleShape,
-                        color = if (isSelected)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                        color = circleColor,
                         modifier = Modifier.size(28.dp)
                     ) {
                         Text(
@@ -129,81 +157,46 @@ private fun QuizQuestionCard(
                             modifier = Modifier.padding(4.dp),
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.Bold,
-                            color = if (isSelected)
-                                MaterialTheme.colorScheme.onPrimary
-                            else
-                                MaterialTheme.colorScheme.onSurface,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            color = when {
+                                !answered && !isSelected -> MaterialTheme.colorScheme.onSurface
+                                else -> Color.White
+                            },
+                            textAlign = TextAlign.Center
                         )
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = value,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onSurface
+                        fontWeight = if (isSelected || (answered && isCorrectOption)) FontWeight.SemiBold else FontWeight.Normal,
+                        color = when {
+                            answered && isCorrectOption -> CorrectGreen
+                            answered && isSelected -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurface
+                        }
                     )
                 }
             }
         }
-    }
-}
 
-@Composable
-private fun QuizAnswerCard(
-    data: QuizResponseDto.Answer,
-    modifier: Modifier = Modifier
-) {
-    val bgColor = if (data.correct)
-        Color(0xFF1B5E20).copy(alpha = 0.12f)
-    else
-        MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-    val accentColor = if (data.correct)
-        Color(0xFF2E7D32)
-    else
-        MaterialTheme.colorScheme.error
-
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(bgColor)
-            .padding(14.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        // Результат после ответа
+        if (answered) {
+            Spacer(modifier = Modifier.height(10.dp))
+            val accentColor = if (isCorrect) CorrectGreen else MaterialTheme.colorScheme.error
             Text(
-                text = if (data.correct) "✅ Правильно!" else "❌ Неверно",
+                text = if (isCorrect) "✅ Правильно!" else "❌ Неверно — правильный: ${data.correct}",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = accentColor
             )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = "Счёт: ${data.score}/${data.total}",
-                style = MaterialTheme.typography.labelMedium,
-                color = accentColor
-            )
-        }
-        if (!data.correct) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = "💡 Правильный ответ: ${data.correctOption} — ${data.correctText}",
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onErrorContainer
-            )
-        }
-        if (data.explanation.isNotBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = data.explanation,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-            )
+            if (data.explanation.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = data.explanation,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
         }
     }
 }
@@ -211,11 +204,12 @@ private fun QuizAnswerCard(
 @Composable
 private fun QuizFinalCard(
     data: QuizResponseDto.Final,
+    localScore: Int,
     modifier: Modifier = Modifier
 ) {
-    val ratio = if (data.total > 0) data.score.toFloat() / data.total else 0f
+    val ratio = if (data.total > 0) localScore.toFloat() / data.total else 0f
     val bgColor = when {
-        ratio >= 0.8f -> Color(0xFF1B5E20).copy(alpha = 0.12f)
+        ratio >= 0.8f -> CorrectGreenBg
         ratio >= 0.5f -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
         else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
     }
@@ -241,7 +235,7 @@ private fun QuizFinalCard(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "${data.score} / ${data.total}",
+            text = "$localScore / ${data.total}",
             style = MaterialTheme.typography.displaySmall,
             fontWeight = FontWeight.ExtraBold,
             color = MaterialTheme.colorScheme.primary
@@ -251,7 +245,7 @@ private fun QuizFinalCard(
             text = data.comment,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            textAlign = TextAlign.Center
         )
     }
 }
