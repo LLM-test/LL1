@@ -1,4 +1,4 @@
-package com.example.hellocompose.presentation.components
+ package com.example.hellocompose.presentation.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
@@ -44,7 +44,6 @@ import com.example.hellocompose.domain.model.QuizConfig
 import com.example.hellocompose.domain.model.QuizDifficulty
 import com.example.hellocompose.domain.model.QuizTopic
 import kotlin.math.roundToInt
-
 @Composable
 private fun QuizSlider(
     title: String,

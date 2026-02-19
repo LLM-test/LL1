@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -43,7 +44,8 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun ChatScreen(
     viewModel: ChatViewModel,
-    onNavigateToExperts: () -> Unit = {}
+    onNavigateToExperts: () -> Unit = {},
+    onNavigateToTemperature: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -74,6 +76,13 @@ fun ChatScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ),
                 actions = {
+                    IconButton(onClick = onNavigateToTemperature) {
+                        Icon(
+                            imageVector = Icons.Default.Thermostat,
+                            contentDescription = "Температура",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                     IconButton(onClick = onNavigateToExperts) {
                         Icon(
                             imageVector = Icons.Default.Groups,

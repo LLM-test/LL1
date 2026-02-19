@@ -14,6 +14,8 @@ import com.example.hellocompose.presentation.ChatScreen
 import com.example.hellocompose.presentation.ChatViewModel
 import com.example.hellocompose.presentation.expert.ExpertChatScreen
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
+import com.example.hellocompose.presentation.temperature.TemperatureChatScreen
+import com.example.hellocompose.presentation.temperature.TemperatureChatViewModel
 import com.example.hellocompose.ui.theme.HelloComposeTheme
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
@@ -21,6 +23,7 @@ class MainActivity : ComponentActivity() {
 
     private val chatViewModel: ChatViewModel by viewModel()
     private val expertChatViewModel: ExpertChatViewModel by viewModel()
+    private val temperatureChatViewModel: TemperatureChatViewModel by viewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,12 +44,23 @@ class MainActivity : ComponentActivity() {
                                 viewModel = chatViewModel,
                                 onNavigateToExperts = {
                                     navController.navigate("experts")
+                                },
+                                onNavigateToTemperature = {
+                                    navController.navigate("temperature")
                                 }
                             )
                         }
                         composable("experts") {
                             ExpertChatScreen(
                                 viewModel = expertChatViewModel,
+                                onNavigateBack = {
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
+                        composable("temperature") {
+                            TemperatureChatScreen(
+                                viewModel = temperatureChatViewModel,
                                 onNavigateBack = {
                                     navController.popBackStack()
                                 }

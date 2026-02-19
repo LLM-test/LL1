@@ -6,6 +6,7 @@ import com.example.hellocompose.domain.repository.ChatRepository
 import com.example.hellocompose.domain.usecase.SendMessageUseCase
 import com.example.hellocompose.presentation.ChatViewModel
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
+import com.example.hellocompose.presentation.temperature.TemperatureChatViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -44,4 +45,5 @@ val appModule = module {
 
     viewModel { ChatViewModel(get()) }
     viewModel { ExpertChatViewModel(get()) }
+    viewModel { TemperatureChatViewModel(get()) }
 }
