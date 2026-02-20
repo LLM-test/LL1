@@ -22,27 +22,27 @@ data class ModelConfig(
 enum class ApiProvider { DEEPSEEK, GROQ }
 
 object ModelConfigs {
-    val DEEPSEEK_CHAT = ModelConfig(
-        id = "deepseek-chat",
-        modelName = "deepseek-chat",
-        displayName = "DeepSeek Chat",
-        emoji = "🐥",
-        tierLabel = "слабая / быстрая",
-        accentColor = 0xFF1565C0,
-        apiProvider = ApiProvider.DEEPSEEK,
-        inputCostPerMillion = 0.14,
-        outputCostPerMillion = 0.28
-    )
     val GROQ_LLAMA_8B = ModelConfig(
         id = "llama-3.1-8b-instant",
         modelName = "llama-3.1-8b-instant",
         displayName = "Llama 3.1 8B",
-        emoji = "🦙",
-        tierLabel = "средняя / быстрая",
+        emoji = "🐥",
+        tierLabel = "слабая / быстрая",
         accentColor = 0xFF6A1B9A,
         apiProvider = ApiProvider.GROQ,
         inputCostPerMillion = 0.05,
         outputCostPerMillion = 0.08
+    )
+    val DEEPSEEK_CHAT = ModelConfig(
+        id = "deepseek-chat",
+        modelName = "deepseek-chat",
+        displayName = "DeepSeek Chat",
+        emoji = "🦙",
+        tierLabel = "средняя / умная",
+        accentColor = 0xFF1565C0,
+        apiProvider = ApiProvider.DEEPSEEK,
+        inputCostPerMillion = 0.14,
+        outputCostPerMillion = 0.28
     )
     val GROQ_LLAMA_70B = ModelConfig(
         id = "llama-3.3-70b-versatile",
@@ -69,5 +69,5 @@ object ModelConfigs {
         temperature = null,
         maxTokens = 2000
     )
-    val ALL = listOf(DEEPSEEK_CHAT, GROQ_LLAMA_8B, GROQ_LLAMA_70B)
+    val ALL = listOf(GROQ_LLAMA_8B, DEEPSEEK_CHAT, GROQ_LLAMA_70B)
 }
