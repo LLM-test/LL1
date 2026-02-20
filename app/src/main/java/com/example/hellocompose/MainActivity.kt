@@ -14,6 +14,8 @@ import com.example.hellocompose.presentation.ChatScreen
 import com.example.hellocompose.presentation.ChatViewModel
 import com.example.hellocompose.presentation.expert.ExpertChatScreen
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
+import com.example.hellocompose.presentation.modelcomparison.ModelComparisonScreen
+import com.example.hellocompose.presentation.modelcomparison.ModelComparisonViewModel
 import com.example.hellocompose.presentation.temperature.TemperatureChatScreen
 import com.example.hellocompose.presentation.temperature.TemperatureChatViewModel
 import com.example.hellocompose.ui.theme.HelloComposeTheme
@@ -24,6 +26,7 @@ class MainActivity : ComponentActivity() {
     private val chatViewModel: ChatViewModel by viewModel()
     private val expertChatViewModel: ExpertChatViewModel by viewModel()
     private val temperatureChatViewModel: TemperatureChatViewModel by viewModel()
+    private val modelComparisonViewModel: ModelComparisonViewModel by viewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,6 +50,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onNavigateToTemperature = {
                                     navController.navigate("temperature")
+                                },
+                                onNavigateToModelComparison = {
+                                    navController.navigate("model_comparison")
                                 }
                             )
                         }
@@ -61,6 +67,14 @@ class MainActivity : ComponentActivity() {
                         composable("temperature") {
                             TemperatureChatScreen(
                                 viewModel = temperatureChatViewModel,
+                                onNavigateBack = {
+                                    navController.popBackStack()
+                                }
+                            )
+                        }
+                        composable("model_comparison") {
+                            ModelComparisonScreen(
+                                viewModel = modelComparisonViewModel,
                                 onNavigateBack = {
                                     navController.popBackStack()
                                 }

@@ -1,11 +1,18 @@
 package com.example.hellocompose.di
 
+import com.example.hellocompose.data.api.ApiConstants
 import com.example.hellocompose.data.api.DeepSeekApiService
+import com.example.hellocompose.data.api.ModelComparisonApiService
 import com.example.hellocompose.data.repository.ChatRepositoryImpl
+import com.example.hellocompose.data.repository.ModelComparisonRepositoryImpl
 import com.example.hellocompose.domain.repository.ChatRepository
+import com.example.hellocompose.domain.repository.ModelComparisonRepository
+import com.example.hellocompose.domain.usecase.CompareModelsUseCase
+import com.example.hellocompose.domain.usecase.JudgeUseCase
 import com.example.hellocompose.domain.usecase.SendMessageUseCase
 import com.example.hellocompose.presentation.ChatViewModel
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
+import com.example.hellocompose.presentation.modelcomparison.ModelComparisonViewModel
 import com.example.hellocompose.presentation.temperature.TemperatureChatViewModel
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.android.Android
@@ -15,6 +22,7 @@ import io.ktor.client.plugins.logging.Logging
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.serialization.json.Json
 import org.koin.androidx.viewmodel.dsl.viewModel
+import org.koin.core.qualifier.named
 import org.koin.dsl.module
 
 val appModule = module {
@@ -46,4 +54,29 @@ val appModule = module {
     viewModel { ChatViewModel(get()) }
     viewModel { ExpertChatViewModel(get()) }
     viewModel { TemperatureChatViewModel(get()) }
+
+    // Model Comparison
+    single(named("deepseekComparison")) {
+        ModelComparisonApiService(
+            client = get(),
+            baseUrl = ApiConstants.BASE_URL,
+            apiKey = ApiConstants.API_KEY
+        )
+    }
+    single(named("groqComparison")) {
+        ModelComparisonApiService(
+            client = get(),
+            baseUrl = ApiConstants.GROQ_BASE_URL,
+            apiKey = ApiConstants.GROQ_API_KEY
+        )
+    }
+    single<ModelComparisonRepository> {
+        ModelComparisonRepositoryImpl(
+            deepSeekService = get(named("deepseekComparison")),
+            groqService = get(named("groqComparison"))
+        )
+    }
+    factory { CompareModelsUseCase(get()) }
+    factory { JudgeUseCase(get(named("deepseekComparison"))) }
+    viewModel { ModelComparisonViewModel(get(), get()) }
 }

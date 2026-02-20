@@ -28,6 +28,11 @@ android {
             "DEEPSEEK_API_KEY",
             "\"${localProperties.getProperty("DEEPSEEK_API_KEY", "")}\""
         )
+        buildConfigField(
+            "String",
+            "GROQ_API_KEY",
+            "\"${localProperties.getProperty("GROQ_API_KEY", "")}\""
+        )
     }
 
     buildTypes {
