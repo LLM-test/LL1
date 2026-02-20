@@ -57,40 +57,45 @@ class ModelComparisonViewModel(
         viewModelScope.launch {
             _effect.send(ModelComparisonEffect.ScrollToBottom)
 
-            // Параллельно запускаем три запроса — по одному на каждую модель
+            // Параллельно запускаем три запроса — каждый сам обновляет state при завершении
             val deferred = ModelConfigs.ALL.map { cfg ->
                 async {
                     val result = compareModelsUseCase(question = text, modelConfig = cfg)
-                    cfg to result
+                    val response = result.fold(
+                        onSuccess = { it },
+                        onFailure = { error ->
+                            Log.e("ModelComparison", "Error for ${cfg.id}: ${error.message}")
+                            ModelComparisonResponse(
+                                modelConfig = cfg,
+                                content = error.message ?: "Ошибка",
+                                isLoading = false,
+                                isError = true
+                            )
+                        }
+                    )
+                    // Обновляем state сразу как только этот конкретный ответ пришёл
+                    _state.update { state ->
+                        val updatedRounds = state.rounds.map { r ->
+                            if (r.id != roundId) return@map r
+                            val updatedResponses = r.responses.map { existing ->
+                                if (existing.modelConfig.id == cfg.id) response else existing
+                            }
+                            r.copy(responses = updatedResponses)
+                        }
+                        state.copy(rounds = updatedRounds)
+                    }
+                    response
                 }
             }
 
-            val results = deferred.map { it.await() }
+            // Ждём все три для передачи судье
+            val finalResponses = deferred.map { it.await() }
 
-            // Собираем финальные ответы трёх моделей
-            val finalResponses = results.map { (cfg, result) ->
-                result.fold(
-                    onSuccess = { it },
-                    onFailure = { error ->
-                        Log.e("ModelComparison", "Error for ${cfg.id}: ${error.message}")
-                        ModelComparisonResponse(
-                            modelConfig = cfg,
-                            content = error.message ?: "Ошибка",
-                            isLoading = false,
-                            isError = true
-                        )
-                    }
-                )
-            }
-
-            // Обновляем ответы и сразу показываем loading у судьи
+            // Все ответы получены — снимаем глобальный лоадинг, показываем лоадинг судьи
             _state.update { state ->
                 val updatedRounds = state.rounds.map { r ->
                     if (r.id != roundId) return@map r
-                    r.copy(
-                        responses = finalResponses,
-                        judgeVerdict = JudgeVerdict(isLoading = true)
-                    )
+                    r.copy(judgeVerdict = JudgeVerdict(isLoading = true))
                 }
                 state.copy(rounds = updatedRounds, isAnyLoading = false)
             }
