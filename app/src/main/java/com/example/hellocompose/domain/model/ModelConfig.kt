@@ -16,7 +16,7 @@ data class ModelConfig(
     val outputCostPerMillion: Double,
     /** null = не передавать параметр в API (например, deepseek-reasoner не поддерживает) */
     val temperature: Float? = 0.7f,
-    val maxTokens: Int = 500
+    val maxTokens: Int = 1000
 )
 
 enum class ApiProvider { DEEPSEEK, GROQ }
