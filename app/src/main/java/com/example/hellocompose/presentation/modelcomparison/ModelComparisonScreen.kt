@@ -167,7 +167,7 @@ private fun ModelChipsRow(modifier: Modifier = Modifier) {
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        ModelConfigs.ALL.forEach { cfg ->
+        ModelConfigs.ALL.forEachIndexed { index, cfg ->
             val color = Color(cfg.accentColor)
             Surface(
                 shape = RoundedCornerShape(50),
@@ -179,7 +179,7 @@ private fun ModelChipsRow(modifier: Modifier = Modifier) {
                 )
             ) {
                 Text(
-                    text = "${cfg.emoji} ${cfg.displayName}",
+                    text = "${index + 1}. ${cfg.emoji} ${cfg.displayName}",
                     style = MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.SemiBold,
                     color = color,
@@ -257,8 +257,8 @@ private fun ModelComparisonRoundItem(
         Spacer(Modifier.height(8.dp))
 
         // Карточки ответов (стопкой)
-        round.responses.forEach { response ->
-            ModelResponseCard(response = response)
+        round.responses.forEachIndexed { index, response ->
+            ModelResponseCard(response = response, index = index)
             Spacer(Modifier.height(6.dp))
         }
 
@@ -277,6 +277,7 @@ private fun ModelComparisonRoundItem(
 @Composable
 private fun ModelResponseCard(
     response: ModelComparisonResponse,
+    index: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val cfg = response.modelConfig
@@ -325,7 +326,7 @@ private fun ModelResponseCard(
                 Spacer(Modifier.size(10.dp))
                 Column {
                     Text(
-                        text = cfg.displayName,
+                        text = "${index + 1}. ${cfg.displayName}",
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = accentColor
