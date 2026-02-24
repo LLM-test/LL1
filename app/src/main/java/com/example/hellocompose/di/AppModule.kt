@@ -41,7 +41,8 @@ val appModule = module {
                 json(Json {
                     ignoreUnknownKeys = true
                     isLenient = true
-                    explicitNulls = false
+                    explicitNulls = false  // null-поля не отправляются
+                    encodeDefaults = true  // поля с дефолтами (type="function") отправляются
                 })
             }
             install(Logging) {
