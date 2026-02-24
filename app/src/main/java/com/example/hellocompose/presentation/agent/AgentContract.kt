@@ -1,6 +1,10 @@
 package com.example.hellocompose.presentation.agent
 
 import com.example.hellocompose.domain.agent.AgentStep
+import java.util.concurrent.atomic.AtomicLong
+
+private val idCounter = AtomicLong(0)
+private fun nextId() = idCounter.incrementAndGet()
 
 data class AgentState(
     val messages: List<AgentMessage> = emptyList(),
@@ -13,7 +17,7 @@ sealed class AgentMessage {
 
     data class User(
         val text: String,
-        override val id: Long = System.currentTimeMillis()
+        override val id: Long = nextId()
     ) : AgentMessage()
 
     data class Assistant(
@@ -21,7 +25,7 @@ sealed class AgentMessage {
         val steps: List<AgentStep> = emptyList(),
         val isLoading: Boolean = false,
         val isError: Boolean = false,
-        override val id: Long = System.currentTimeMillis()
+        override val id: Long = nextId()
     ) : AgentMessage()
 }
 
