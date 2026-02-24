@@ -1,13 +1,17 @@
 package com.example.hellocompose.di
 
+import androidx.room.Room
 import com.example.hellocompose.data.api.ApiConstants
 import com.example.hellocompose.data.api.DeepSeekApiService
 import com.example.hellocompose.data.api.ModelComparisonApiService
+import com.example.hellocompose.data.db.AgentDatabase
+import com.example.hellocompose.data.repository.AgentHistoryRepository
 import com.example.hellocompose.data.repository.ChatRepositoryImpl
 import com.example.hellocompose.data.repository.ModelComparisonRepositoryImpl
 import com.example.hellocompose.domain.agent.Agent
 import com.example.hellocompose.domain.agent.tools.CalculatorTool
 import com.example.hellocompose.domain.agent.tools.DateTimeTool
+import org.koin.android.ext.koin.androidContext
 import com.example.hellocompose.domain.repository.ChatRepository
 import com.example.hellocompose.domain.repository.ModelComparisonRepository
 import com.example.hellocompose.domain.usecase.CompareModelsUseCase
@@ -86,7 +90,13 @@ val appModule = module {
     factory { JudgeUseCase(get(named("deepseekComparison"))) }
     viewModel { ModelComparisonViewModel(get(), get()) }
 
-    // Agent (Day 6)
-    factory { Agent(get(named("deepseekComparison")), listOf(DateTimeTool(), CalculatorTool())) }
+    // Agent (Day 7: Room persistence)
+    single {
+        Room.databaseBuilder(androidContext(), AgentDatabase::class.java, "agent-db")
+            .build()
+    }
+    single { get<AgentDatabase>().agentMessageDao() }
+    single { AgentHistoryRepository(get()) }
+    single { Agent(get(named("deepseekComparison")), listOf(DateTimeTool(), CalculatorTool()), get()) }
     viewModel { AgentViewModel(get()) }
 }

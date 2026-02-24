@@ -25,8 +25,10 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
             is AgentIntent.TypeMessage -> _state.update { it.copy(inputText = intent.text) }
             is AgentIntent.SendMessage -> sendMessage()
             is AgentIntent.ClearHistory -> {
-                agent.reset()
-                _state.update { it.copy(messages = emptyList(), inputText = "") }
+                viewModelScope.launch {
+                    agent.reset()
+                    _state.update { it.copy(messages = emptyList(), inputText = "") }
+                }
             }
         }
     }

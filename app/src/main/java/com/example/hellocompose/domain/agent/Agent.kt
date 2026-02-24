@@ -1,22 +1,28 @@
 package com.example.hellocompose.domain.agent
 
+import android.util.Log
 import com.example.hellocompose.data.api.ModelComparisonApiService
 import com.example.hellocompose.data.api.dto.ChatRequestDto
 import com.example.hellocompose.data.api.dto.MessageDto
+import com.example.hellocompose.data.repository.AgentHistoryRepository
 
 /**
  * Агент — отдельная сущность, инкапсулирующая логику диалога с LLM.
  *
- * Поддерживает многошаговый цикл:
- *   1. Отправляет сообщение пользователя в LLM вместе с описаниями инструментов
- *   2. Если LLM вызывает инструмент — выполняет его и отправляет результат обратно
- *   3. Повторяет до финального ответа (finish_reason = "stop")
+ * День 7: история диалога сохраняется в Room и восстанавливается при перезапуске.
+ * Цикл:
+ *   1. Lazy-загрузка истории из БД при первом обращении
+ *   2. Отправка запроса в LLM с инструментами
+ *   3. Если tool_calls → выполнить инструменты → сохранить → повторить
+ *   4. Финальный ответ → сохранить → вернуть результат
  */
 class Agent(
     private val apiService: ModelComparisonApiService,
-    private val tools: List<AgentTool>
+    private val tools: List<AgentTool>,
+    private val historyRepository: AgentHistoryRepository
 ) {
     private val history = mutableListOf<MessageDto>()
+    private var historyLoaded = false
 
     private val systemPrompt = """
         Ты — умный ассистент с доступом к инструментам.
@@ -24,14 +30,39 @@ class Agent(
         Отвечай на русском языке, кратко и по делу.
     """.trimIndent()
 
-    fun reset() = history.clear()
+    /** Загружает историю из Room при первом вызове (lazy). */
+    private suspend fun ensureHistoryLoaded() {
+        if (historyLoaded) return
+        val saved = historyRepository.loadHistory()
+        history.addAll(saved)
+        historyLoaded = true
+        Log.d("Agent", "Loaded ${saved.size} messages from DB")
+    }
+
+    /** Очищает историю в памяти и в базе данных. */
+    suspend fun reset() {
+        history.clear()
+        historyLoaded = true // помечаем как загруженную (пустую)
+        historyRepository.clearHistory()
+        Log.d("Agent", "History cleared")
+    }
+
+    /** Сохраняет сообщение в память и в Room. */
+    private suspend fun addToHistory(message: MessageDto) {
+        history.add(message)
+        historyRepository.saveMessage(message)
+    }
 
     suspend fun chat(userMessage: String): AgentResult {
+        ensureHistoryLoaded()
+
         val messages = mutableListOf<MessageDto>()
         messages.add(MessageDto(role = "system", content = systemPrompt))
         messages.addAll(history)
-        messages.add(MessageDto(role = "user", content = userMessage))
-        history.add(MessageDto(role = "user", content = userMessage))
+
+        val userMsg = MessageDto(role = "user", content = userMessage)
+        messages.add(userMsg)
+        addToHistory(userMsg)
 
         val toolDefs = tools.map { it.definition }.takeIf { it.isNotEmpty() }
         val steps = mutableListOf<AgentStep>()
@@ -52,7 +83,7 @@ class Agent(
                 messages.add(assistantMessage)
 
                 if (choice.finishReason == "tool_calls" && !assistantMessage.toolCalls.isNullOrEmpty()) {
-                    history.add(assistantMessage)
+                    addToHistory(assistantMessage)
                     for (toolCall in assistantMessage.toolCalls) {
                         val tool = tools.find { it.name == toolCall.function.name }
                         val result = tool?.execute(toolCall.function.arguments)
@@ -64,17 +95,19 @@ class Agent(
                             toolCallId = toolCall.id
                         )
                         messages.add(toolMessage)
-                        history.add(toolMessage)
+                        addToHistory(toolMessage)
                     }
                     iterations++
                 } else {
                     val answer = assistantMessage.content ?: ""
-                    history.add(assistantMessage)
+                    addToHistory(assistantMessage)
+                    Log.d("Agent", "Final answer after ${steps.size} tool calls")
                     return@runCatching AgentResult(answer = answer, steps = steps)
                 }
             }
             AgentResult(answer = "Превышен лимит итераций агента.", steps = steps)
         }.getOrElse { error ->
+            Log.e("Agent", "Error: ${error.message}")
             AgentResult(answer = error.message ?: "Неизвестная ошибка", isError = true)
         }
     }
