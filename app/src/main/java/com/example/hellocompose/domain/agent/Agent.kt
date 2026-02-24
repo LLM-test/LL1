@@ -39,6 +39,12 @@ class Agent(
         Log.d("Agent", "Loaded ${saved.size} messages from DB")
     }
 
+    /** Возвращает текущую историю диалога (загружает из БД если ещё не загружена). */
+    suspend fun getHistory(): List<MessageDto> {
+        ensureHistoryLoaded()
+        return history.toList()
+    }
+
     /** Очищает историю в памяти и в базе данных. */
     suspend fun reset() {
         history.clear()
