@@ -55,7 +55,7 @@ class ChatRepositoryImpl(
 
         return ChatMessage(
             role = ChatMessage.Role.ASSISTANT,
-            content = assistantMessage.content
+            content = assistantMessage.content.orEmpty()
         )
     }
 }
