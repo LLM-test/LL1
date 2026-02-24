@@ -5,12 +5,16 @@ import com.example.hellocompose.data.api.DeepSeekApiService
 import com.example.hellocompose.data.api.ModelComparisonApiService
 import com.example.hellocompose.data.repository.ChatRepositoryImpl
 import com.example.hellocompose.data.repository.ModelComparisonRepositoryImpl
+import com.example.hellocompose.domain.agent.Agent
+import com.example.hellocompose.domain.agent.tools.CalculatorTool
+import com.example.hellocompose.domain.agent.tools.DateTimeTool
 import com.example.hellocompose.domain.repository.ChatRepository
 import com.example.hellocompose.domain.repository.ModelComparisonRepository
 import com.example.hellocompose.domain.usecase.CompareModelsUseCase
 import com.example.hellocompose.domain.usecase.JudgeUseCase
 import com.example.hellocompose.domain.usecase.SendMessageUseCase
 import com.example.hellocompose.presentation.ChatViewModel
+import com.example.hellocompose.presentation.agent.AgentViewModel
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
 import com.example.hellocompose.presentation.modelcomparison.ModelComparisonViewModel
 import com.example.hellocompose.presentation.temperature.TemperatureChatViewModel
@@ -37,6 +41,7 @@ val appModule = module {
                 json(Json {
                     ignoreUnknownKeys = true
                     isLenient = true
+                    explicitNulls = false
                 })
             }
             install(Logging) {
@@ -79,4 +84,8 @@ val appModule = module {
     factory { CompareModelsUseCase(get()) }
     factory { JudgeUseCase(get(named("deepseekComparison"))) }
     viewModel { ModelComparisonViewModel(get(), get()) }
+
+    // Agent (Day 6)
+    factory { Agent(get(named("deepseekComparison")), listOf(DateTimeTool(), CalculatorTool())) }
+    viewModel { AgentViewModel(get()) }
 }

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -47,7 +48,8 @@ fun ChatScreen(
     viewModel: ChatViewModel,
     onNavigateToExperts: () -> Unit = {},
     onNavigateToTemperature: () -> Unit = {},
-    onNavigateToModelComparison: () -> Unit = {}
+    onNavigateToModelComparison: () -> Unit = {},
+    onNavigateToAgent: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -78,6 +80,13 @@ fun ChatScreen(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 ),
                 actions = {
+                    IconButton(onClick = onNavigateToAgent) {
+                        Icon(
+                            imageVector = Icons.Default.SmartToy,
+                            contentDescription = "Агент",
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
                     IconButton(onClick = onNavigateToModelComparison) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.CompareArrows,

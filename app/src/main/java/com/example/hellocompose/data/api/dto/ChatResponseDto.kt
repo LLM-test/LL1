@@ -24,5 +24,7 @@ data class UsageDto(
 @Serializable
 data class ChoiceDto(
     @SerialName("message")
-    val message: MessageDto
+    val message: MessageDto,
+    @SerialName("finish_reason")
+    val finishReason: String? = null
 )

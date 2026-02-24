@@ -20,7 +20,9 @@ data class ChatRequestDto(
     @SerialName("presence_penalty")
     val presencePenalty: Float? = null,
     @SerialName("stop")
-    val stop: List<String>? = null
+    val stop: List<String>? = null,
+    @SerialName("tools")
+    val tools: List<ToolDefinitionDto>? = null
 )
 
 @Serializable
@@ -28,5 +30,9 @@ data class MessageDto(
     @SerialName("role")
     val role: String,
     @SerialName("content")
-    val content: String
+    val content: String? = null,
+    @SerialName("tool_calls")
+    val toolCalls: List<ToolCallDto>? = null,
+    @SerialName("tool_call_id")
+    val toolCallId: String? = null
 )

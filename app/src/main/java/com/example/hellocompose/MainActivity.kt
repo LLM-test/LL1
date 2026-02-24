@@ -12,6 +12,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.hellocompose.presentation.ChatScreen
 import com.example.hellocompose.presentation.ChatViewModel
+import com.example.hellocompose.presentation.agent.AgentScreen
+import com.example.hellocompose.presentation.agent.AgentViewModel
 import com.example.hellocompose.presentation.expert.ExpertChatScreen
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
 import com.example.hellocompose.presentation.modelcomparison.ModelComparisonScreen
@@ -27,6 +29,7 @@ class MainActivity : ComponentActivity() {
     private val expertChatViewModel: ExpertChatViewModel by viewModel()
     private val temperatureChatViewModel: TemperatureChatViewModel by viewModel()
     private val modelComparisonViewModel: ModelComparisonViewModel by viewModel()
+    private val agentViewModel: AgentViewModel by viewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,39 +48,34 @@ class MainActivity : ComponentActivity() {
                         composable("chat") {
                             ChatScreen(
                                 viewModel = chatViewModel,
-                                onNavigateToExperts = {
-                                    navController.navigate("experts")
-                                },
-                                onNavigateToTemperature = {
-                                    navController.navigate("temperature")
-                                },
-                                onNavigateToModelComparison = {
-                                    navController.navigate("model_comparison")
-                                }
+                                onNavigateToExperts = { navController.navigate("experts") },
+                                onNavigateToTemperature = { navController.navigate("temperature") },
+                                onNavigateToModelComparison = { navController.navigate("model_comparison") },
+                                onNavigateToAgent = { navController.navigate("agent") }
                             )
                         }
                         composable("experts") {
                             ExpertChatScreen(
                                 viewModel = expertChatViewModel,
-                                onNavigateBack = {
-                                    navController.popBackStack()
-                                }
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                         composable("temperature") {
                             TemperatureChatScreen(
                                 viewModel = temperatureChatViewModel,
-                                onNavigateBack = {
-                                    navController.popBackStack()
-                                }
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                         composable("model_comparison") {
                             ModelComparisonScreen(
                                 viewModel = modelComparisonViewModel,
-                                onNavigateBack = {
-                                    navController.popBackStack()
-                                }
+                                onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("agent") {
+                            AgentScreen(
+                                viewModel = agentViewModel,
+                                onNavigateBack = { navController.popBackStack() }
                             )
                         }
                     }
