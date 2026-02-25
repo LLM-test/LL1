@@ -37,7 +37,7 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -212,7 +212,7 @@ private fun SessionStatsBar(stats: SessionStats) {
 
         // Прогресс-бар заполнения контекста
         LinearProgressIndicator(
-            progress = { progress },
+            progress = progress,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(4.dp)
@@ -409,7 +409,7 @@ private fun AssistantCard(message: AgentMessage.Assistant, modifier: Modifier = 
                 message.tokenInfo?.let { info ->
                     if (info.totalTokens > 0) {
                         Spacer(Modifier.height(8.dp))
-                        HorizontalDivider(color = agentColor.copy(alpha = 0.15f))
+                        Divider(color = agentColor.copy(alpha = 0.15f))
                         Spacer(Modifier.height(6.dp))
                         TokenInfoRow(info)
                     }
