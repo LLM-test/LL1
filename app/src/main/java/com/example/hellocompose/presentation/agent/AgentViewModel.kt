@@ -42,7 +42,13 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
             is AgentIntent.ClearHistory -> {
                 viewModelScope.launch {
                     agent.reset()
-                    _state.update { it.copy(messages = emptyList(), inputText = "") }
+                    _state.update {
+                        it.copy(
+                            messages = emptyList(),
+                            inputText = "",
+                            sessionStats = SessionStats()
+                        )
+                    }
                 }
             }
         }
@@ -69,17 +75,36 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
             val result = agent.chat(text)
 
             _state.update { state ->
-                val updated = state.messages.dropLast(1) + AgentMessage.Assistant(
+                // Обновляем накопительную статистику сессии
+                val updatedStats = state.sessionStats.copy(
+                    lastPromptTokens = result.tokenInfo.promptTokens,
+                    totalCostUsd = state.sessionStats.totalCostUsd + result.tokenInfo.costUsd,
+                    totalExchanges = state.sessionStats.totalExchanges + 1
+                )
+
+                val updatedMessages = state.messages.dropLast(1) + AgentMessage.Assistant(
                     text = result.answer,
                     steps = result.steps,
                     isLoading = false,
-                    isError = result.isError
+                    isError = result.isError,
+                    tokenInfo = result.tokenInfo
                 )
-                state.copy(messages = updated, isLoading = false)
+
+                state.copy(
+                    messages = updatedMessages,
+                    isLoading = false,
+                    sessionStats = updatedStats
+                )
             }
 
             _effect.send(AgentEffect.ScrollToBottom)
-            Log.d("AgentViewModel", "Answer received, steps=${result.steps.size}")
+            Log.d(
+                "AgentViewModel",
+                "Answer received: steps=${result.steps.size}, " +
+                    "prompt=${result.tokenInfo.promptTokens}, " +
+                    "completion=${result.tokenInfo.completionTokens}, " +
+                    "cost=\$${String.format("%.6f", result.tokenInfo.costUsd)}"
+            )
         }
     }
 }
@@ -93,6 +118,9 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
  * - tool      → формирует AgentStep из имени + аргументов + результата
  * - assistant (без tool_calls) → AgentMessage.Assistant с накопленными шагами
  * - system    → пропускается
+ *
+ * Примечание: tokenInfo при восстановлении из Room недоступна (не сохраняется),
+ * поэтому восстановленные сообщения отображаются без блока статистики.
  */
 private fun List<MessageDto>.toUiMessages(): List<AgentMessage> {
     val result = mutableListOf<AgentMessage>()
@@ -121,7 +149,8 @@ private fun List<MessageDto>.toUiMessages(): List<AgentMessage> {
                     result.add(
                         AgentMessage.Assistant(
                             text = msg.content ?: "",
-                            steps = pendingSteps.toList()
+                            steps = pendingSteps.toList(),
+                            tokenInfo = null   // tokenInfo не хранится в Room
                         )
                     )
                     pendingSteps.clear()

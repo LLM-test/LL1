@@ -37,8 +37,10 @@ import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -62,10 +64,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.hellocompose.domain.agent.AgentStep
+import com.example.hellocompose.domain.agent.TokenInfo
 import com.example.hellocompose.presentation.components.ChatInput
 import kotlinx.coroutines.flow.collectLatest
 
 private val agentColor = Color(0xFF00695C) // teal
+private val warnColor = Color(0xFFF57F17)  // amber
+private val dangerColor = Color(0xFFB71C1C) // dark red
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -130,6 +135,9 @@ fun AgentScreen(
             // Строка с доступными инструментами
             ToolsInfoRow()
 
+            // Панель статистики токенов (появляется после первого ответа)
+            SessionStatsBar(stats = state.sessionStats)
+
             LazyColumn(
                 modifier = Modifier
                     .weight(1f)
@@ -154,6 +162,73 @@ fun AgentScreen(
                 isLoading = state.isLoading,
                 onTextChange = { viewModel.handleIntent(AgentIntent.TypeMessage(it)) },
                 onSendClick = { viewModel.handleIntent(AgentIntent.SendMessage) }
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Панель статистики токенов сессии
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun SessionStatsBar(stats: SessionStats) {
+    if (stats.totalExchanges == 0) return
+
+    val progress = stats.contextUsedPercent
+    val barColor = when {
+        progress > 0.9f -> dangerColor
+        progress > 0.8f -> warnColor
+        else -> agentColor
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 16.dp, vertical = 6.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Контекст — текущий запрос
+            Text(
+                text = "Контекст: ${formatTokens(stats.lastPromptTokens)} / 128K",
+                style = MaterialTheme.typography.labelSmall,
+                color = barColor,
+                fontWeight = FontWeight.SemiBold
+            )
+            // Суммарная стоимость сессии
+            Text(
+                text = "Итого: $${String.format("%.4f", stats.totalCostUsd)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+        }
+
+        Spacer(Modifier.height(4.dp))
+
+        // Прогресс-бар заполнения контекста
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(4.dp)
+                .clip(RoundedCornerShape(50)),
+            color = barColor,
+            trackColor = barColor.copy(alpha = 0.15f)
+        )
+
+        // Предупреждение при >80% заполнения
+        if (stats.isNearLimit) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = "⚠️ Контекст заполнен на ${(progress * 100).toInt()}%. " +
+                    "При переполнении агент вернёт ошибку.",
+                style = MaterialTheme.typography.labelSmall,
+                color = warnColor
             )
         }
     }
@@ -329,7 +404,79 @@ private fun AssistantCard(message: AgentMessage.Assistant, modifier: Modifier = 
                             MaterialTheme.colorScheme.onSurface
                     )
                 }
+
+                // Статистика токенов (только для новых сообщений с tokenInfo)
+                message.tokenInfo?.let { info ->
+                    if (info.totalTokens > 0) {
+                        Spacer(Modifier.height(8.dp))
+                        HorizontalDivider(color = agentColor.copy(alpha = 0.15f))
+                        Spacer(Modifier.height(6.dp))
+                        TokenInfoRow(info)
+                    }
+                }
             }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Строка статистики токенов внутри карточки
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun TokenInfoRow(info: TokenInfo) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Входные токены (запрос + история)
+        TokenBadge(
+            emoji = "📥",
+            label = "запрос",
+            value = formatTokens(info.promptTokens),
+            color = Color(0xFF1565C0) // синий
+        )
+        // Выходные токены (ответ)
+        TokenBadge(
+            emoji = "📤",
+            label = "ответ",
+            value = formatTokens(info.completionTokens),
+            color = agentColor
+        )
+        Spacer(Modifier.weight(1f))
+        // Стоимость
+        Text(
+            text = "💵 $${String.format("%.5f", info.costUsd)}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+        )
+    }
+}
+
+@Composable
+private fun TokenBadge(emoji: String, label: String, value: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = color.copy(alpha = 0.1f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(text = emoji, style = MaterialTheme.typography.labelSmall)
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = color.copy(alpha = 0.7f)
+            )
         }
     }
 }
@@ -452,4 +599,15 @@ private fun AgentLoadingDots() {
             )
         }
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Хелперы
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Форматирует количество токенов: 1500 → "1.5K", 500 → "500". */
+private fun formatTokens(n: Int): String = when {
+    n >= 10_000 -> "${n / 1000}K"
+    n >= 1_000 -> "${n / 1000}.${(n % 1000) / 100}K"
+    else -> "$n"
 }

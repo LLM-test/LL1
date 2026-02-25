@@ -10,19 +10,36 @@ import com.example.hellocompose.data.repository.AgentHistoryRepository
  * Агент — отдельная сущность, инкапсулирующая логику диалога с LLM.
  *
  * День 7: история диалога сохраняется в Room и восстанавливается при перезапуске.
+ * День 8: подсчёт токенов — per-turn и накопительно по сессии.
+ *
  * Цикл:
  *   1. Lazy-загрузка истории из БД при первом обращении
  *   2. Отправка запроса в LLM с инструментами
  *   3. Если tool_calls → выполнить инструменты → сохранить → повторить
- *   4. Финальный ответ → сохранить → вернуть результат
+ *   4. Финальный ответ → сохранить → вернуть результат + TokenInfo
  */
 class Agent(
     private val apiService: ModelComparisonApiService,
     private val tools: List<AgentTool>,
     private val historyRepository: AgentHistoryRepository
 ) {
+    companion object {
+        /** Контекстное окно deepseek-chat: 128K токенов. */
+        const val CONTEXT_LIMIT = 131_072
+
+        /** Цена deepseek-chat: $0.14 за млн входных токенов. */
+        private const val PRICE_INPUT = 0.14 / 1_000_000.0
+
+        /** Цена deepseek-chat: $0.28 за млн выходных токенов. */
+        private const val PRICE_OUTPUT = 0.28 / 1_000_000.0
+    }
+
     private val history = mutableListOf<MessageDto>()
     private var historyLoaded = false
+
+    // Накопительная статистика за сессию (сбрасывается при reset)
+    private var sessionPromptTokens = 0
+    private var sessionCompletionTokens = 0
 
     private val systemPrompt = """
         Ты — умный ассистент с доступом к инструментам.
@@ -45,12 +62,17 @@ class Agent(
         return history.toList()
     }
 
-    /** Очищает историю в памяти и в базе данных. */
+    /** Статистика токенов накопительно за текущую сессию. */
+    fun getSessionTokens(): Pair<Int, Int> = sessionPromptTokens to sessionCompletionTokens
+
+    /** Очищает историю в памяти, в БД и сбрасывает статистику сессии. */
     suspend fun reset() {
         history.clear()
-        historyLoaded = true // помечаем как загруженную (пустую)
+        historyLoaded = true
+        sessionPromptTokens = 0
+        sessionCompletionTokens = 0
         historyRepository.clearHistory()
-        Log.d("Agent", "History cleared")
+        Log.d("Agent", "History and session stats cleared")
     }
 
     /** Сохраняет сообщение в память и в Room. */
@@ -73,6 +95,10 @@ class Agent(
         val toolDefs = tools.map { it.definition }.takeIf { it.isNotEmpty() }
         val steps = mutableListOf<AgentStep>()
 
+        // Накапливаем токены по всем итерациям цикла агента (tool_calls)
+        var turnPromptTokens = 0
+        var turnCompletionTokens = 0
+
         return runCatching {
             var iterations = 0
             while (iterations < 5) {
@@ -84,6 +110,14 @@ class Agent(
                     tools = toolDefs
                 )
                 val response = apiService.chatCompletions(request)
+
+                // Суммируем токены каждого API-вызова (в цикле tool_calls их может быть несколько)
+                response.usage?.let { usage ->
+                    turnPromptTokens += usage.promptTokens
+                    turnCompletionTokens += usage.completionTokens
+                    Log.d("Agent", "API call tokens: prompt=${usage.promptTokens}, completion=${usage.completionTokens}")
+                }
+
                 val choice = response.choices.first()
                 val assistantMessage = choice.message
                 messages.add(assistantMessage)
@@ -107,14 +141,40 @@ class Agent(
                 } else {
                     val answer = assistantMessage.content ?: ""
                     addToHistory(assistantMessage)
-                    Log.d("Agent", "Final answer after ${steps.size} tool calls")
-                    return@runCatching AgentResult(answer = answer, steps = steps)
+
+                    // Обновляем накопительную статистику сессии
+                    sessionPromptTokens += turnPromptTokens
+                    sessionCompletionTokens += turnCompletionTokens
+
+                    val cost = turnPromptTokens * PRICE_INPUT + turnCompletionTokens * PRICE_OUTPUT
+                    val tokenInfo = TokenInfo(
+                        promptTokens = turnPromptTokens,
+                        completionTokens = turnCompletionTokens,
+                        costUsd = cost
+                    )
+
+                    Log.d(
+                        "Agent",
+                        "Turn done: prompt=$turnPromptTokens, completion=$turnCompletionTokens, " +
+                            "cost=\$${String.format("%.6f", cost)}, steps=${steps.size}"
+                    )
+
+                    return@runCatching AgentResult(answer = answer, steps = steps, tokenInfo = tokenInfo)
                 }
             }
             AgentResult(answer = "Превышен лимит итераций агента.", steps = steps)
         }.getOrElse { error ->
             Log.e("Agent", "Error: ${error.message}")
-            AgentResult(answer = error.message ?: "Неизвестная ошибка", isError = true)
+            // Проверяем, является ли ошибка переполнением контекста
+            val isContextOverflow = error.message?.contains("context_length", ignoreCase = true) == true ||
+                error.message?.contains("maximum context", ignoreCase = true) == true
+            val errorMsg = if (isContextOverflow) {
+                "⛔ Контекст переполнен! Диалог превысил лимит модели (128K токенов).\n" +
+                    "Очистите историю кнопкой 🗑 и начните новый диалог."
+            } else {
+                error.message ?: "Неизвестная ошибка"
+            }
+            AgentResult(answer = errorMsg, isError = true)
         }
     }
 }
