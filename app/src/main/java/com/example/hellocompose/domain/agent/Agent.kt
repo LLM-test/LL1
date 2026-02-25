@@ -95,9 +95,11 @@ class Agent(
         val toolDefs = tools.map { it.definition }.takeIf { it.isNotEmpty() }
         val steps = mutableListOf<AgentStep>()
 
-        // Накапливаем токены по всем итерациям цикла агента (tool_calls)
-        var turnPromptTokens = 0
-        var turnCompletionTokens = 0
+        // promptTokens последнего API-вызова — отражает реальный размер контекста.
+        // costUsd считается как сумма всех вызовов (платим за каждый tool-цикл).
+        var lastPromptTokens = 0
+        var totalCompletionTokens = 0
+        var totalCostAccumulator = 0.0
 
         return runCatching {
             var iterations = 0
@@ -111,11 +113,14 @@ class Agent(
                 )
                 val response = apiService.chatCompletions(request)
 
-                // Суммируем токены каждого API-вызова (в цикле tool_calls их может быть несколько)
+                // prompt_tokens последнего вызова = реальный размер контекста прямо сейчас.
+                // completion_tokens и стоимость суммируем по всем итерациям tool-цикла.
                 response.usage?.let { usage ->
-                    turnPromptTokens += usage.promptTokens
-                    turnCompletionTokens += usage.completionTokens
-                    Log.d("Agent", "API call tokens: prompt=${usage.promptTokens}, completion=${usage.completionTokens}")
+                    lastPromptTokens = usage.promptTokens          // перезаписываем — нужен последний
+                    totalCompletionTokens += usage.completionTokens
+                    totalCostAccumulator += usage.promptTokens * PRICE_INPUT +
+                        usage.completionTokens * PRICE_OUTPUT
+                    Log.d("Agent", "API call: prompt=${usage.promptTokens}, completion=${usage.completionTokens}")
                 }
 
                 val choice = response.choices.first()
@@ -143,20 +148,19 @@ class Agent(
                     addToHistory(assistantMessage)
 
                     // Обновляем накопительную статистику сессии
-                    sessionPromptTokens += turnPromptTokens
-                    sessionCompletionTokens += turnCompletionTokens
+                    sessionPromptTokens = lastPromptTokens  // контекст = последний запрос
+                    sessionCompletionTokens += totalCompletionTokens
 
-                    val cost = turnPromptTokens * PRICE_INPUT + turnCompletionTokens * PRICE_OUTPUT
                     val tokenInfo = TokenInfo(
-                        promptTokens = turnPromptTokens,
-                        completionTokens = turnCompletionTokens,
-                        costUsd = cost
+                        promptTokens = lastPromptTokens,         // реальный размер контекста
+                        completionTokens = totalCompletionTokens, // суммарный вывод за обмен
+                        costUsd = totalCostAccumulator            // суммарная стоимость всех итераций
                     )
 
                     Log.d(
                         "Agent",
-                        "Turn done: prompt=$turnPromptTokens, completion=$turnCompletionTokens, " +
-                            "cost=\$${String.format("%.6f", cost)}, steps=${steps.size}"
+                        "Turn done: prompt=$lastPromptTokens, completion=$totalCompletionTokens, " +
+                            "cost=\$${String.format("%.6f", totalCostAccumulator)}, steps=${steps.size}"
                     )
 
                     return@runCatching AgentResult(answer = answer, steps = steps, tokenInfo = tokenInfo)
