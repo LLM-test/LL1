@@ -9,14 +9,13 @@ import com.example.hellocompose.data.repository.AgentHistoryRepository
 /**
  * Агент — отдельная сущность, инкапсулирующая логику диалога с LLM.
  *
- * День 7: история диалога сохраняется в Room и восстанавливается при перезапуске.
- * День 8: подсчёт токенов — per-turn и накопительно по сессии.
- *
- * Цикл:
- *   1. Lazy-загрузка истории из БД при первом обращении
- *   2. Отправка запроса в LLM с инструментами
- *   3. Если tool_calls → выполнить инструменты → сохранить → повторить
- *   4. Финальный ответ → сохранить → вернуть результат + TokenInfo
+ * День 7: история сохраняется в Room.
+ * День 8: подсчёт токенов.
+ * День 9: сжатие контекста.
+ *   - Последние [RECENT_WINDOW] сообщений всегда передаются verbatim.
+ *   - Когда некомпрессированных сообщений становится > RECENT_WINDOW + COMPRESS_EVERY,
+ *     старый пакет ([COMPRESS_EVERY] сообщений) заменяется summary.
+ *   - Summary хранится в Room и восстанавливается при перезапуске.
  */
 class Agent(
     private val apiService: ModelComparisonApiService,
@@ -32,12 +31,24 @@ class Agent(
 
         /** Цена deepseek-chat: $0.28 за млн выходных токенов. */
         private const val PRICE_OUTPUT = 0.28 / 1_000_000.0
+
+        /** Сколько последних сообщений всегда передаётся verbatim. */
+        const val RECENT_WINDOW = 6
+
+        /** Пакет сжатия: каждые N сообщений превращаются в summary. */
+        const val COMPRESS_EVERY = 6
     }
 
     private val history = mutableListOf<MessageDto>()
     private var historyLoaded = false
 
-    // Накопительная статистика за сессию (сбрасывается при reset)
+    /** Сжатое резюме старой части диалога. */
+    private var summary: String = ""
+
+    /** Сколько сообщений из начала истории уже покрыто summary. */
+    private var coveredCount: Int = 0
+
+    // Накопительная статистика за сессию
     private var sessionPromptTokens = 0
     private var sessionCompletionTokens = 0
 
@@ -47,46 +58,145 @@ class Agent(
         Отвечай на русском языке, кратко и по делу.
     """.trimIndent()
 
-    /** Загружает историю из Room при первом вызове (lazy). */
+    // ── Инициализация ─────────────────────────────────────────────────────────
+
     private suspend fun ensureHistoryLoaded() {
         if (historyLoaded) return
         val saved = historyRepository.loadHistory()
         history.addAll(saved)
+        val (savedSummary, savedCoveredCount) = historyRepository.loadContext()
+        summary = savedSummary
+        coveredCount = savedCoveredCount
         historyLoaded = true
-        Log.d("Agent", "Loaded ${saved.size} messages from DB")
+        Log.d("Agent", "Loaded ${saved.size} messages, coveredCount=$coveredCount, " +
+            "hasSummary=${summary.isNotBlank()}")
     }
 
-    /** Возвращает текущую историю диалога (загружает из БД если ещё не загружена). */
     suspend fun getHistory(): List<MessageDto> {
         ensureHistoryLoaded()
         return history.toList()
     }
 
-    /** Статистика токенов накопительно за текущую сессию. */
-    fun getSessionTokens(): Pair<Int, Int> = sessionPromptTokens to sessionCompletionTokens
+    // ── Статистика контекста ──────────────────────────────────────────────────
 
-    /** Очищает историю в памяти, в БД и сбрасывает статистику сессии. */
+    data class ContextStats(
+        val compressedCount: Int = 0,   // сообщений покрыто summary
+        val recentCount: Int = 0,       // сообщений передаётся verbatim
+        val isSummaryActive: Boolean = false,
+        val summaryLength: Int = 0      // длина текста резюме (символов)
+    )
+
+    suspend fun getContextStats(): ContextStats {
+        ensureHistoryLoaded()
+        return ContextStats(
+            compressedCount = coveredCount,
+            recentCount = history.size - coveredCount,
+            isSummaryActive = summary.isNotBlank(),
+            summaryLength = summary.length
+        )
+    }
+
+    // ── Сброс ─────────────────────────────────────────────────────────────────
+
     suspend fun reset() {
         history.clear()
+        summary = ""
+        coveredCount = 0
         historyLoaded = true
         sessionPromptTokens = 0
         sessionCompletionTokens = 0
         historyRepository.clearHistory()
-        Log.d("Agent", "History and session stats cleared")
+        Log.d("Agent", "History, summary and session stats cleared")
     }
 
-    /** Сохраняет сообщение в память и в Room. */
+    // ── История ───────────────────────────────────────────────────────────────
+
     private suspend fun addToHistory(message: MessageDto) {
         history.add(message)
         historyRepository.saveMessage(message)
     }
 
+    // ── Сжатие контекста ─────────────────────────────────────────────────────
+
+    /**
+     * Сжимает старые сообщения в summary пока
+     * некомпрессированных > [RECENT_WINDOW] + [COMPRESS_EVERY].
+     *
+     * Один вызов сжимает ровно [COMPRESS_EVERY] сообщений.
+     * Цикл обрабатывает несколько пакетов подряд (например при загрузке длинной истории из Room).
+     */
+    private suspend fun maybeCompress() {
+        while (history.size - coveredCount > RECENT_WINDOW + COMPRESS_EVERY) {
+            val batch = history.subList(coveredCount, coveredCount + COMPRESS_EVERY)
+            Log.d("Agent", "Compressing messages [$coveredCount..${coveredCount + COMPRESS_EVERY - 1}]")
+            summary = generateSummary(summary, batch)
+            coveredCount += COMPRESS_EVERY
+            historyRepository.saveContext(summary, coveredCount)
+            Log.d("Agent", "Compression done: coveredCount=$coveredCount, summaryLen=${summary.length}")
+        }
+    }
+
+    /**
+     * Генерирует обновлённое резюме на основе существующего + новой порции сообщений.
+     * Использует LLM с низкой температурой для стабильного пересказа.
+     */
+    private suspend fun generateSummary(existingSummary: String, messages: List<MessageDto>): String {
+        val prompt = buildString {
+            if (existingSummary.isNotBlank()) {
+                appendLine("Существующее резюме диалога:")
+                appendLine(existingSummary)
+                appendLine()
+            }
+            appendLine("Сообщения для включения в резюме:")
+            messages.forEach { msg ->
+                when (msg.role) {
+                    "user" -> appendLine("Пользователь: ${msg.content}")
+                    "assistant" -> if (!msg.content.isNullOrBlank()) appendLine("Ассистент: ${msg.content}")
+                    "tool" -> appendLine("Инструмент вернул: ${msg.content}")
+                }
+            }
+            append("\nСоздай краткое резюме диалога (до 150 слов). " +
+                "Сохрани ключевые факты, вопросы и ответы. Только текст резюме, без предисловий.")
+        }
+
+        val request = ChatRequestDto(
+            model = "deepseek-chat",
+            messages = listOf(MessageDto(role = "user", content = prompt)),
+            maxTokens = 400,
+            temperature = 0.2f
+        )
+
+        return try {
+            val result = apiService.chatCompletions(request).choices.first().message.content
+            Log.d("Agent", "Summary generated: ${result?.length} chars")
+            result ?: existingSummary
+        } catch (e: Exception) {
+            Log.e("Agent", "Summary generation failed: ${e.message}")
+            existingSummary // при ошибке оставляем старое резюме
+        }
+    }
+
+    // ── Основной диалог ───────────────────────────────────────────────────────
+
     suspend fun chat(userMessage: String): AgentResult {
         ensureHistoryLoaded()
+        maybeCompress()  // сжимаем старую историю перед отправкой запроса
 
+        // Строим список сообщений: [system] + [summary?] + [recent messages]
         val messages = mutableListOf<MessageDto>()
         messages.add(MessageDto(role = "system", content = systemPrompt))
-        messages.addAll(history)
+
+        if (summary.isNotBlank()) {
+            messages.add(
+                MessageDto(
+                    role = "system",
+                    content = "📝 Краткое изложение предыдущего диалога:\n$summary"
+                )
+            )
+        }
+
+        // Только recent-сообщения (не покрытые summary)
+        messages.addAll(history.drop(coveredCount))
 
         val userMsg = MessageDto(role = "user", content = userMessage)
         messages.add(userMsg)
@@ -95,8 +205,6 @@ class Agent(
         val toolDefs = tools.map { it.definition }.takeIf { it.isNotEmpty() }
         val steps = mutableListOf<AgentStep>()
 
-        // promptTokens последнего API-вызова — отражает реальный размер контекста.
-        // costUsd считается как сумма всех вызовов (платим за каждый tool-цикл).
         var lastPromptTokens = 0
         var totalCompletionTokens = 0
         var totalCostAccumulator = 0.0
@@ -113,10 +221,8 @@ class Agent(
                 )
                 val response = apiService.chatCompletions(request)
 
-                // prompt_tokens последнего вызова = реальный размер контекста прямо сейчас.
-                // completion_tokens и стоимость суммируем по всем итерациям tool-цикла.
                 response.usage?.let { usage ->
-                    lastPromptTokens = usage.promptTokens          // перезаписываем — нужен последний
+                    lastPromptTokens = usage.promptTokens
                     totalCompletionTokens += usage.completionTokens
                     totalCostAccumulator += usage.promptTokens * PRICE_INPUT +
                         usage.completionTokens * PRICE_OUTPUT
@@ -147,21 +253,19 @@ class Agent(
                     val answer = assistantMessage.content ?: ""
                     addToHistory(assistantMessage)
 
-                    // Обновляем накопительную статистику сессии
-                    sessionPromptTokens = lastPromptTokens  // контекст = последний запрос
+                    sessionPromptTokens = lastPromptTokens
                     sessionCompletionTokens += totalCompletionTokens
 
                     val tokenInfo = TokenInfo(
-                        promptTokens = lastPromptTokens,         // реальный размер контекста
-                        completionTokens = totalCompletionTokens, // суммарный вывод за обмен
-                        costUsd = totalCostAccumulator            // суммарная стоимость всех итераций
+                        promptTokens = lastPromptTokens,
+                        completionTokens = totalCompletionTokens,
+                        costUsd = totalCostAccumulator
                     )
 
-                    Log.d(
-                        "Agent",
+                    Log.d("Agent",
                         "Turn done: prompt=$lastPromptTokens, completion=$totalCompletionTokens, " +
-                            "cost=\$${String.format("%.6f", totalCostAccumulator)}, steps=${steps.size}"
-                    )
+                            "cost=\$${String.format("%.6f", totalCostAccumulator)}, steps=${steps.size}, " +
+                            "compressed=$coveredCount, recent=${history.size - coveredCount}")
 
                     return@runCatching AgentResult(answer = answer, steps = steps, tokenInfo = tokenInfo)
                 }
@@ -169,7 +273,6 @@ class Agent(
             AgentResult(answer = "Превышен лимит итераций агента.", steps = steps)
         }.getOrElse { error ->
             Log.e("Agent", "Error: ${error.message}")
-            // Проверяем, является ли ошибка переполнением контекста
             val isContextOverflow = error.message?.contains("context_length", ignoreCase = true) == true ||
                 error.message?.contains("maximum context", ignoreCase = true) == true
             val errorMsg = if (isContextOverflow) {

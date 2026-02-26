@@ -23,14 +23,14 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
     val effect = _effect.receiveAsFlow()
 
     init {
-        // Загружаем и отображаем сохранённую историю при старте
         viewModelScope.launch {
             val history = agent.getHistory()
             val uiMessages = history.toUiMessages()
+            val ctxStats = agent.getContextStats().toUiStats()
             if (uiMessages.isNotEmpty()) {
-                _state.update { it.copy(messages = uiMessages) }
+                _state.update { it.copy(messages = uiMessages, contextStats = ctxStats) }
                 _effect.send(AgentEffect.ScrollToBottom)
-                Log.d("AgentViewModel", "Restored ${uiMessages.size} UI messages from history")
+                Log.d("AgentViewModel", "Restored ${uiMessages.size} UI messages, $ctxStats")
             }
         }
     }
@@ -46,7 +46,8 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
                         it.copy(
                             messages = emptyList(),
                             inputText = "",
-                            sessionStats = SessionStats()
+                            sessionStats = SessionStats(),
+                            contextStats = ContextStats()
                         )
                     }
                 }
@@ -73,15 +74,14 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
             _effect.send(AgentEffect.ScrollToBottom)
 
             val result = agent.chat(text)
+            val ctxStats = agent.getContextStats().toUiStats()
 
             _state.update { state ->
-                // Обновляем накопительную статистику сессии
                 val updatedStats = state.sessionStats.copy(
                     lastPromptTokens = result.tokenInfo.promptTokens,
                     totalCostUsd = state.sessionStats.totalCostUsd + result.tokenInfo.costUsd,
                     totalExchanges = state.sessionStats.totalExchanges + 1
                 )
-
                 val updatedMessages = state.messages.dropLast(1) + AgentMessage.Assistant(
                     text = result.answer,
                     steps = result.steps,
@@ -89,43 +89,38 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
                     isError = result.isError,
                     tokenInfo = result.tokenInfo
                 )
-
                 state.copy(
                     messages = updatedMessages,
                     isLoading = false,
-                    sessionStats = updatedStats
+                    sessionStats = updatedStats,
+                    contextStats = ctxStats
                 )
             }
 
             _effect.send(AgentEffect.ScrollToBottom)
-            Log.d(
-                "AgentViewModel",
-                "Answer received: steps=${result.steps.size}, " +
-                    "prompt=${result.tokenInfo.promptTokens}, " +
-                    "completion=${result.tokenInfo.completionTokens}, " +
-                    "cost=\$${String.format("%.6f", result.tokenInfo.costUsd)}"
-            )
+            Log.d("AgentViewModel",
+                "Answer: steps=${result.steps.size}, prompt=${result.tokenInfo.promptTokens}, " +
+                    "completion=${result.tokenInfo.completionTokens}, ctx=$ctxStats")
         }
     }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun Agent.ContextStats.toUiStats() = ContextStats(
+        compressedCount = compressedCount,
+        recentCount = recentCount,
+        isSummaryActive = isSummaryActive,
+        summaryLength = summaryLength
+    )
 }
 
 /**
- * Конвертирует сырую историю API-сообщений в UI-модели для отображения.
- *
- * Алгоритм:
- * - user      → AgentMessage.User
- * - assistant (с tool_calls) → запоминает вызовы инструментов
- * - tool      → формирует AgentStep из имени + аргументов + результата
- * - assistant (без tool_calls) → AgentMessage.Assistant с накопленными шагами
- * - system    → пропускается
- *
- * Примечание: tokenInfo при восстановлении из Room недоступна (не сохраняется),
- * поэтому восстановленные сообщения отображаются без блока статистики.
+ * Конвертирует сырую историю API-сообщений в UI-модели.
+ * tokenInfo не восстанавливается из Room (не хранится) — будет null у старых сообщений.
  */
 private fun List<MessageDto>.toUiMessages(): List<AgentMessage> {
     val result = mutableListOf<AgentMessage>()
     val pendingSteps = mutableListOf<AgentStep>()
-    // id → (toolName, arguments) из последнего assistant tool_calls
     val pendingToolCalls = mutableMapOf<String, Pair<String, String>>()
 
     for (msg in this) {
@@ -140,17 +135,15 @@ private fun List<MessageDto>.toUiMessages(): List<AgentMessage> {
 
             "assistant" -> {
                 if (!msg.toolCalls.isNullOrEmpty()) {
-                    // Запоминаем вызовы — результаты придут в следующих "tool" сообщениях
                     msg.toolCalls.forEach { call ->
                         pendingToolCalls[call.id] = call.function.name to call.function.arguments
                     }
                 } else {
-                    // Финальный ответ — создаём карточку с накопленными шагами
                     result.add(
                         AgentMessage.Assistant(
                             text = msg.content ?: "",
                             steps = pendingSteps.toList(),
-                            tokenInfo = null   // tokenInfo не хранится в Room
+                            tokenInfo = null
                         )
                     )
                     pendingSteps.clear()
@@ -161,13 +154,7 @@ private fun List<MessageDto>.toUiMessages(): List<AgentMessage> {
             "tool" -> {
                 val (toolName, arguments) = pendingToolCalls[msg.toolCallId]
                     ?: ("unknown_tool" to "{}")
-                pendingSteps.add(
-                    AgentStep(
-                        toolName = toolName,
-                        arguments = arguments,
-                        result = msg.content ?: ""
-                    )
-                )
+                pendingSteps.add(AgentStep(toolName, arguments, msg.content ?: ""))
             }
         }
     }

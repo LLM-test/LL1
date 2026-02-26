@@ -135,8 +135,8 @@ fun AgentScreen(
             // Строка с доступными инструментами
             ToolsInfoRow()
 
-            // Панель статистики токенов (появляется после первого ответа)
-            SessionStatsBar(stats = state.sessionStats)
+            // Панель статистики токенов + компрессии (появляется после первого ответа)
+            SessionStatsBar(stats = state.sessionStats, ctxStats = state.contextStats)
 
             LazyColumn(
                 modifier = Modifier
@@ -172,7 +172,7 @@ fun AgentScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SessionStatsBar(stats: SessionStats) {
+private fun SessionStatsBar(stats: SessionStats, ctxStats: ContextStats) {
     if (stats.totalExchanges == 0) return
 
     val progress = stats.contextUsedPercent
@@ -181,6 +181,7 @@ private fun SessionStatsBar(stats: SessionStats) {
         progress > 0.8f -> warnColor
         else -> agentColor
     }
+    val compressionColor = Color(0xFF6A1B9A) // фиолетовый
 
     Column(
         modifier = Modifier
@@ -188,19 +189,18 @@ private fun SessionStatsBar(stats: SessionStats) {
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
             .padding(horizontal = 16.dp, vertical = 6.dp)
     ) {
+        // ── Строка 1: контекст + стоимость ───────────────────────────────────
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Контекст — текущий запрос
             Text(
                 text = "Контекст: ${formatTokens(stats.lastPromptTokens)} / 128K",
                 style = MaterialTheme.typography.labelSmall,
                 color = barColor,
                 fontWeight = FontWeight.SemiBold
             )
-            // Суммарная стоимость сессии
             Text(
                 text = "Итого: $${String.format("%.4f", stats.totalCostUsd)}",
                 style = MaterialTheme.typography.labelSmall,
@@ -210,7 +210,7 @@ private fun SessionStatsBar(stats: SessionStats) {
 
         Spacer(Modifier.height(4.dp))
 
-        // Прогресс-бар заполнения контекста
+        // ── Прогресс-бар контекста ────────────────────────────────────────────
         LinearProgressIndicator(
             progress = progress,
             modifier = Modifier
@@ -221,7 +221,7 @@ private fun SessionStatsBar(stats: SessionStats) {
             trackColor = barColor.copy(alpha = 0.15f)
         )
 
-        // Предупреждение при >80% заполнения
+        // ── Предупреждение при >80% ───────────────────────────────────────────
         if (stats.isNearLimit) {
             Spacer(Modifier.height(3.dp))
             Text(
@@ -229,6 +229,68 @@ private fun SessionStatsBar(stats: SessionStats) {
                     "При переполнении агент вернёт ошибку.",
                 style = MaterialTheme.typography.labelSmall,
                 color = warnColor
+            )
+        }
+
+        // ── Строка 2: статистика компрессии (появляется когда есть summary) ──
+        if (ctxStats.isSummaryActive) {
+            Spacer(Modifier.height(5.dp))
+            Divider(color = compressionColor.copy(alpha = 0.15f))
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "📝 Сжатие активно",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = compressionColor,
+                    fontWeight = FontWeight.SemiBold
+                )
+                CompressionBadge(
+                    label = "сжато",
+                    value = "${ctxStats.compressedCount} сообщ.",
+                    color = compressionColor
+                )
+                CompressionBadge(
+                    label = "verbatim",
+                    value = "${ctxStats.recentCount} сообщ.",
+                    color = agentColor
+                )
+                Spacer(Modifier.weight(1f))
+                // Процент экономии
+                val savingPct = (ctxStats.compressionRatio * 100).toInt()
+                Text(
+                    text = "~${savingPct}% экономия",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = compressionColor.copy(alpha = 0.7f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompressionBadge(label: String, value: String, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = color.copy(alpha = 0.1f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = color.copy(alpha = 0.7f)
             )
         }
     }
