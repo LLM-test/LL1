@@ -122,18 +122,47 @@ class Agent(
      * Сжимает старые сообщения в summary пока
      * некомпрессированных > [RECENT_WINDOW] + [COMPRESS_EVERY].
      *
-     * Один вызов сжимает ровно [COMPRESS_EVERY] сообщений.
-     * Цикл обрабатывает несколько пакетов подряд (например при загрузке длинной истории из Room).
+     * Граница разреза выбирается ТОЛЬКО после финального ответа ассистента
+     * (role="assistant" без tool_calls), чтобы никогда не оставлять
+     * осиротевший role="tool" в начале recent-окна.
      */
     private suspend fun maybeCompress() {
         while (history.size - coveredCount > RECENT_WINDOW + COMPRESS_EVERY) {
-            val batch = history.subList(coveredCount, coveredCount + COMPRESS_EVERY)
-            Log.d("Agent", "Compressing messages [$coveredCount..${coveredCount + COMPRESS_EVERY - 1}]")
+            // Ищем ближайшую безопасную границу в диапазоне ~COMPRESS_EVERY сообщений
+            val searchEnd = minOf(coveredCount + COMPRESS_EVERY + 4, history.size - RECENT_WINDOW)
+            val cutPoint = findTurnBoundary(coveredCount + 1, searchEnd)
+
+            if (cutPoint <= coveredCount) break  // нет завершённого хода в диапазоне — ждём
+
+            val batch = history.subList(coveredCount, cutPoint)
+            Log.d("Agent", "Compressing ${batch.size} messages [$coveredCount..$cutPoint)")
             summary = generateSummary(summary, batch)
-            coveredCount += COMPRESS_EVERY
+            coveredCount = cutPoint
             historyRepository.saveContext(summary, coveredCount)
             Log.d("Agent", "Compression done: coveredCount=$coveredCount, summaryLen=${summary.length}")
         }
+    }
+
+    /**
+     * Находит индекс ПОСЛЕ первого финального ответа ассистента в диапазоне [startFrom, maxEnd).
+     *
+     * Финальный ответ = role="assistant" без tool_calls и с непустым content.
+     * Такая граница гарантирует, что следующий за ней блок сообщений
+     * начинается с role="user" или role="assistant" без tool-зависимостей.
+     *
+     * @return индекс после найденного сообщения, или [coveredCount] если граница не найдена.
+     */
+    private fun findTurnBoundary(startFrom: Int, maxEnd: Int): Int {
+        for (i in startFrom until maxEnd) {
+            val msg = history[i]
+            if (msg.role == "assistant" &&
+                msg.toolCalls.isNullOrEmpty() &&
+                !msg.content.isNullOrBlank()
+            ) {
+                return i + 1
+            }
+        }
+        return coveredCount  // безопасная граница не найдена
     }
 
     /**
