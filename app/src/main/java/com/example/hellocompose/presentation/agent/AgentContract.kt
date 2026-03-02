@@ -72,7 +72,10 @@ data class AgentState(
     val isLoading: Boolean = false,
     val sessionStats: SessionStats = SessionStats(),
     val contextStats: ContextStats = ContextStats(),
-    val strategyState: StrategyState = StrategyState()
+    val strategyState: StrategyState = StrategyState(),
+    val isDemoRunning: Boolean = false,
+    val demoStep: Int = 0,
+    val demoTotal: Int = 0
 )
 
 // ── Messages ──────────────────────────────────────────────────────────────────
@@ -109,6 +112,10 @@ sealed class AgentIntent {
     object SaveCheckpoint : AgentIntent()
     data class CreateBranch(val name: String) : AgentIntent()
     data class SwitchBranch(val branchId: String) : AgentIntent()
+
+    // Demo auto-send
+    data class RunDemo(val messages: List<String>) : AgentIntent()
+    object StopDemo : AgentIntent()
 }
 
 // ── Effects ───────────────────────────────────────────────────────────────────

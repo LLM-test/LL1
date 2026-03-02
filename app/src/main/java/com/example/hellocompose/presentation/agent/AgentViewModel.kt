@@ -7,7 +7,9 @@ import com.example.hellocompose.data.api.dto.MessageDto
 import com.example.hellocompose.domain.agent.Agent
 import com.example.hellocompose.domain.agent.AgentStep
 import com.example.hellocompose.domain.agent.ContextStrategy
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +52,8 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
             is AgentIntent.SaveCheckpoint -> saveCheckpoint()
             is AgentIntent.CreateBranch   -> createBranch(intent.name)
             is AgentIntent.SwitchBranch   -> switchBranch(intent.branchId)
+            is AgentIntent.RunDemo        -> runDemo(intent.messages)
+            is AgentIntent.StopDemo       -> stopDemo()
         }
     }
 
@@ -58,51 +62,74 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
     private fun sendMessage() {
         val text = _state.value.inputText.trim()
         if (text.isBlank() || _state.value.isLoading) return
+        viewModelScope.launch { sendMessageCore(text) }
+    }
 
-        val branchId = agent.activeBranchId
-        val userMsg   = AgentMessage.User(text = text, branchId = branchId)
+    /** Suspend-ядро отправки — используется и при ручном вводе, и в демо-режиме. */
+    private suspend fun sendMessageCore(text: String) {
+        val branchId   = agent.activeBranchId
+        val userMsg    = AgentMessage.User(text = text, branchId = branchId)
         val loadingMsg = AgentMessage.Assistant(isLoading = true, branchId = branchId)
 
         _state.update {
             it.copy(messages = it.messages + userMsg + loadingMsg, inputText = "", isLoading = true)
         }
+        _effect.send(AgentEffect.ScrollToBottom)
 
-        viewModelScope.launch {
-            _effect.send(AgentEffect.ScrollToBottom)
+        val result       = agent.chat(text)
+        val ctxStats     = agent.getContextStats().toUiStats()
+        val strategyState = buildStrategyState()
 
-            // Показываем "извлекаем факты..." во время извлечения StickyFacts
-            if (agent.activeStrategy is ContextStrategy.StickyFacts) {
-                _state.update { it.copy(strategyState = it.strategyState.copy(isExtractingFacts = false)) }
-            }
-
-            val result = agent.chat(text)
-            val ctxStats = agent.getContextStats().toUiStats()
-            val strategyState = buildStrategyState()
-
-            _state.update { state ->
-                val updatedStats = state.sessionStats.copy(
-                    lastPromptTokens = result.tokenInfo.promptTokens,
-                    totalCostUsd = state.sessionStats.totalCostUsd + result.tokenInfo.costUsd,
-                    totalExchanges = state.sessionStats.totalExchanges + 1
-                )
-                val updatedMsgs = state.messages.dropLast(1) + AgentMessage.Assistant(
-                    text = result.answer,
-                    steps = result.steps,
-                    isLoading = false,
-                    isError = result.isError,
-                    tokenInfo = result.tokenInfo,
-                    branchId = branchId
-                )
-                state.copy(
-                    messages = updatedMsgs,
-                    isLoading = false,
-                    sessionStats = updatedStats,
-                    contextStats = ctxStats,
-                    strategyState = strategyState
-                )
-            }
-            _effect.send(AgentEffect.ScrollToBottom)
+        _state.update { state ->
+            val updatedStats = state.sessionStats.copy(
+                lastPromptTokens = result.tokenInfo.promptTokens,
+                totalCostUsd     = state.sessionStats.totalCostUsd + result.tokenInfo.costUsd,
+                totalExchanges   = state.sessionStats.totalExchanges + 1
+            )
+            val updatedMsgs = state.messages.dropLast(1) + AgentMessage.Assistant(
+                text      = result.answer,
+                steps     = result.steps,
+                isLoading = false,
+                isError   = result.isError,
+                tokenInfo = result.tokenInfo,
+                branchId  = branchId
+            )
+            state.copy(
+                messages      = updatedMsgs,
+                isLoading     = false,
+                sessionStats  = updatedStats,
+                contextStats  = ctxStats,
+                strategyState = strategyState
+            )
         }
+        _effect.send(AgentEffect.ScrollToBottom)
+    }
+
+    // ── Demo (auto-send) ──────────────────────────────────────────────────────
+
+    private var demoJob: Job? = null
+
+    private fun runDemo(messages: List<String>) {
+        if (_state.value.isDemoRunning || _state.value.isLoading) return
+        demoJob = viewModelScope.launch {
+            _state.update { it.copy(isDemoRunning = true, demoStep = 0, demoTotal = messages.size) }
+            try {
+                messages.forEachIndexed { i, msg ->
+                    _state.update { it.copy(demoStep = i + 1) }
+                    sendMessageCore(msg)
+                    if (i < messages.lastIndex) delay(600)
+                }
+                _effect.send(AgentEffect.ShowToast("Автотест завершён ✓"))
+            } finally {
+                _state.update { it.copy(isDemoRunning = false, demoStep = 0, demoTotal = 0) }
+            }
+        }
+    }
+
+    private fun stopDemo() {
+        demoJob?.cancel()
+        demoJob = null
+        _state.update { it.copy(isDemoRunning = false, demoStep = 0, demoTotal = 0, isLoading = false) }
     }
 
     // ── Clear ─────────────────────────────────────────────────────────────────

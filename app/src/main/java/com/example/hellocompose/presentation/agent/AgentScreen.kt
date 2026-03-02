@@ -74,6 +74,42 @@ import com.example.hellocompose.domain.agent.TokenInfo
 import com.example.hellocompose.presentation.components.ChatInput
 import kotlinx.coroutines.flow.collectLatest
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Наборы сообщений для автотеста каждой стратегии
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val DEMO_SLIDING_WINDOW = listOf(
+    "Меня зовут Андрей, я разрабатываю Android-приложение на Kotlin.",
+    "Какие архитектуры подходят для Android?",
+    "Что такое Jetpack Compose?",
+    "Объясни LazyColumn.",
+    "Что такое State Hoisting?",
+    "Объясни remember и rememberSaveable.",
+    "Что такое Side Effects в Compose?",
+    "Объясни LaunchedEffect.",
+    "Что такое derivedStateOf?",
+    "Расскажи про CompositionLocal.",
+    "Как меня зовут и что я разрабатываю?"
+)
+
+private val DEMO_STICKY_FACTS = listOf(
+    "Помогу спланировать проект. Делаю приложение-трекер привычек для Android.",
+    "Основные фичи: добавление привычек, ежедневные напоминания, статистика за неделю.",
+    "Буду использовать Kotlin + Jetpack Compose + Room для хранения.",
+    "Срок — 2 месяца, работаю один.",
+    "Что такое coroutines?",
+    "Как правильно именовать переменные в Kotlin?",
+    "Что такое sealed class?",
+    "Напомни: что за проект я делаю, какой стек и сроки?"
+)
+
+private val DEMO_BRANCHING = listOf(
+    "Помоги выбрать базу данных для мобильного приложения. Менеджер задач, ~10 000 записей, офлайн-работа.",
+    "Расскажи подробнее про Room.",
+    "Напиши пример Entity для задачи с полями title, isDone, deadline.",
+    "Какую БД мы решили использовать и какие поля в Entity?"
+)
+
 private val agentColor = Color(0xFF00695C) // teal
 private val warnColor = Color(0xFFF57F17)  // amber
 private val dangerColor = Color(0xFFB71C1C) // dark red
@@ -149,11 +185,16 @@ fun AgentScreen(
 
             // Панель управления стратегиями контекста (Day 10)
             StrategyPanel(
-                strategyState = state.strategyState,
+                strategyState  = state.strategyState,
+                isDemoRunning  = state.isDemoRunning,
+                demoStep       = state.demoStep,
+                demoTotal      = state.demoTotal,
                 onChangeStrategy = { viewModel.handleIntent(AgentIntent.ChangeStrategy(it)) },
                 onSaveCheckpoint = { viewModel.handleIntent(AgentIntent.SaveCheckpoint) },
-                onCreateBranch = { viewModel.handleIntent(AgentIntent.CreateBranch(it)) },
-                onSwitchBranch = { viewModel.handleIntent(AgentIntent.SwitchBranch(it)) }
+                onCreateBranch   = { viewModel.handleIntent(AgentIntent.CreateBranch(it)) },
+                onSwitchBranch   = { viewModel.handleIntent(AgentIntent.SwitchBranch(it)) },
+                onRunDemo        = { viewModel.handleIntent(AgentIntent.RunDemo(it)) },
+                onStopDemo       = { viewModel.handleIntent(AgentIntent.StopDemo) }
             )
 
             // Панель статистики токенов + компрессии (появляется после первого ответа)
@@ -195,13 +236,24 @@ fun AgentScreen(
 @Composable
 private fun StrategyPanel(
     strategyState: StrategyState,
+    isDemoRunning: Boolean,
+    demoStep: Int,
+    demoTotal: Int,
     onChangeStrategy: (ContextStrategy) -> Unit,
     onSaveCheckpoint: () -> Unit,
     onCreateBranch: (String) -> Unit,
-    onSwitchBranch: (String) -> Unit
+    onSwitchBranch: (String) -> Unit,
+    onRunDemo: (List<String>) -> Unit,
+    onStopDemo: () -> Unit
 ) {
     var showBranchDialog by remember { mutableStateOf(false) }
     var newBranchName by remember { mutableStateOf("") }
+
+    val demoMessages = when (strategyState.active) {
+        is ContextStrategy.SlidingWindow -> DEMO_SLIDING_WINDOW
+        is ContextStrategy.StickyFacts   -> DEMO_STICKY_FACTS
+        is ContextStrategy.Branching     -> DEMO_BRANCHING
+    }
 
     Column(
         modifier = Modifier
@@ -209,7 +261,7 @@ private fun StrategyPanel(
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
-        // Строка выбора стратегии
+        // Строка выбора стратегии + кнопка автотеста
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -233,6 +285,42 @@ private fun StrategyPanel(
                     isActive = isActive,
                     onClick = { onChangeStrategy(strategy) }
                 )
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            // Кнопка автотеста
+            if (isDemoRunning) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = dangerColor.copy(alpha = 0.12f),
+                    modifier = Modifier
+                        .border(1.dp, dangerColor.copy(alpha = 0.4f), RoundedCornerShape(50))
+                        .clickable { onStopDemo() }
+                ) {
+                    Text(
+                        text = "⏹ $demoStep/$demoTotal",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = dangerColor,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = agentColor.copy(alpha = 0.1f),
+                    modifier = Modifier
+                        .border(1.dp, agentColor.copy(alpha = 0.35f), RoundedCornerShape(50))
+                        .clickable { onRunDemo(demoMessages) }
+                ) {
+                    Text(
+                        text = "▶ Тест (${demoMessages.size})",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = agentColor,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
             }
         }
 
