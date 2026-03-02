@@ -328,12 +328,46 @@ private fun StrategyPanel(
         when (strategyState.active) {
             is ContextStrategy.SlidingWindow -> {
                 if (strategyState.totalMessages > 0) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = "Окно: ${strategyState.windowMessages} / ${strategyState.totalMessages} сообщений",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
-                    )
+                    val dropped = strategyState.totalMessages - strategyState.windowMessages
+                    Spacer(Modifier.height(5.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Сколько отправляется в API
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = agentColor.copy(alpha = 0.1f)
+                        ) {
+                            Text(
+                                text = "📨 в контексте: ${strategyState.windowMessages}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = agentColor,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                        // Сколько отброшено
+                        if (dropped > 0) {
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = warnColor.copy(alpha = 0.1f)
+                            ) {
+                                Text(
+                                    text = "🗑 забыто: $dropped",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = warnColor,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Text(
+                            text = "из ${strategyState.totalMessages}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                        )
+                    }
                 }
             }
             is ContextStrategy.StickyFacts -> {
