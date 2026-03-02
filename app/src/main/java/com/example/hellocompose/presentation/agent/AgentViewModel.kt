@@ -52,7 +52,7 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
             is AgentIntent.SaveCheckpoint -> saveCheckpoint()
             is AgentIntent.CreateBranch   -> createBranch(intent.name)
             is AgentIntent.SwitchBranch   -> switchBranch(intent.branchId)
-            is AgentIntent.RunDemo        -> runDemo(intent.messages)
+            is AgentIntent.RunDemo        -> runDemo(intent.actions)
             is AgentIntent.StopDemo       -> stopDemo()
         }
     }
@@ -109,15 +109,31 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
 
     private var demoJob: Job? = null
 
-    private fun runDemo(messages: List<String>) {
+    private fun runDemo(actions: List<DemoAction>) {
         if (_state.value.isDemoRunning || _state.value.isLoading) return
         demoJob = viewModelScope.launch {
-            _state.update { it.copy(isDemoRunning = true, demoStep = 0, demoTotal = messages.size) }
+            _state.update { it.copy(isDemoRunning = true, demoStep = 0, demoTotal = actions.size) }
             try {
-                messages.forEachIndexed { i, msg ->
+                actions.forEachIndexed { i, action ->
                     _state.update { it.copy(demoStep = i + 1) }
-                    sendMessageCore(msg)
-                    if (i < messages.lastIndex) delay(600)
+                    when (action) {
+                        is DemoAction.SendMessage    -> sendMessageCore(action.text)
+                        is DemoAction.SaveCheckpoint -> {
+                            agent.saveCheckpoint()
+                            _state.update { it.copy(strategyState = buildStrategyState()) }
+                            _effect.send(AgentEffect.ShowToast("💾 Чекпоинт сохранён"))
+                            delay(400)
+                        }
+                        is DemoAction.CreateBranch   -> {
+                            val branch = agent.createBranch(action.name)
+                            val branchMsgs = agent.getActiveBranchHistory().toUiMessages(branch.id)
+                            _state.update { it.copy(messages = branchMsgs, strategyState = buildStrategyState()) }
+                            _effect.send(AgentEffect.ShowToast("🌿 Ветка '${branch.name}' создана"))
+                            _effect.send(AgentEffect.ScrollToBottom)
+                            delay(400)
+                        }
+                    }
+                    if (i < actions.lastIndex) delay(600)
                 }
                 _effect.send(AgentEffect.ShowToast("Автотест завершён ✓"))
             } finally {

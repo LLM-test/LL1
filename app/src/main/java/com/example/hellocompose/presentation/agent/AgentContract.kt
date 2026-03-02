@@ -100,6 +100,15 @@ sealed class AgentMessage {
     ) : AgentMessage()
 }
 
+// ── Demo actions ──────────────────────────────────────────────────────────────
+
+/** Действие в автотесте — не только отправка сообщения, но и команды агента. */
+sealed class DemoAction {
+    data class SendMessage(val text: String) : DemoAction()
+    object SaveCheckpoint : DemoAction()
+    data class CreateBranch(val name: String) : DemoAction()
+}
+
 // ── Intents ───────────────────────────────────────────────────────────────────
 
 sealed class AgentIntent {
@@ -114,7 +123,7 @@ sealed class AgentIntent {
     data class SwitchBranch(val branchId: String) : AgentIntent()
 
     // Demo auto-send
-    data class RunDemo(val messages: List<String>) : AgentIntent()
+    data class RunDemo(val actions: List<DemoAction>) : AgentIntent()
     object StopDemo : AgentIntent()
 }
 

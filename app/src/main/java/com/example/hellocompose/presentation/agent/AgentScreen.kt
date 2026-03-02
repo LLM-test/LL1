@@ -80,26 +80,30 @@ import kotlinx.coroutines.flow.collectLatest
 
 // windowSize=10 → нужно >5 обменов до вопроса, чтобы intro вылетело из окна
 private val DEMO_SLIDING_WINDOW = listOf(
-    "Меня зовут Андрей, пишу Android на Kotlin.",   // intro — должно вылететь из окна
-    "Что такое Jetpack Compose? Одним абзацем.",
-    "Объясни LazyColumn.",
-    "Что такое remember?",
-    "Объясни State Hoisting.",
-    "Что такое LaunchedEffect?",
-    "Как меня зовут и что я разрабатываю?"           // проверка — агент должен забыть
+    DemoAction.SendMessage("Меня зовут Андрей, пишу Android на Kotlin."),   // intro — должно вылететь из окна
+    DemoAction.SendMessage("Что такое Jetpack Compose? Одним абзацем."),
+    DemoAction.SendMessage("Объясни LazyColumn."),
+    DemoAction.SendMessage("Что такое remember?"),
+    DemoAction.SendMessage("Объясни State Hoisting."),
+    DemoAction.SendMessage("Что такое LaunchedEffect?"),
+    DemoAction.SendMessage("Как меня зовут и что я разрабатываю?")          // проверка — агент должен забыть
 )
 
 private val DEMO_STICKY_FACTS = listOf(
-    "Делаю трекер привычек на Kotlin + Compose + Room. Срок 2 месяца, работаю один.",
-    "Что такое coroutines? Кратко.",
-    "Что такое sealed class?",
-    "Напомни: что за проект, стек и сроки?"          // проверка — агент должен помнить
+    DemoAction.SendMessage("Делаю трекер привычек на Kotlin + Compose + Room. Срок 2 месяца, работаю один."),
+    DemoAction.SendMessage("Что такое coroutines? Кратко."),
+    DemoAction.SendMessage("Что такое sealed class?"),
+    DemoAction.SendMessage("Напомни: что за проект, стек и сроки?")         // проверка — агент должен помнить
 )
 
+// Демо Branching: общий вопрос → чекпоинт → ветка A (Room) → ветка B (Realm) → сравнение
 private val DEMO_BRANCHING = listOf(
-    "Выбираю БД для Android-приложения: менеджер задач, офлайн-работа.",
-    "Сравни Room и Realm кратко — плюсы и минусы.",
-    "Какие варианты БД мы рассматривали?"            // база для чекпоинта и веток
+    DemoAction.SendMessage("Выбираю БД для Android: офлайн-менеджер задач. Какие варианты?"),
+    DemoAction.SaveCheckpoint,                                               // сохраняем общий контекст
+    DemoAction.SendMessage("Расскажи подробнее про Room."),                  // ветка A: изучаем Room
+    DemoAction.CreateBranch("Ветка Realm"),                                  // возвращаемся к чекпоинту → ветка B
+    DemoAction.SendMessage("Расскажи подробнее про Realm."),                 // ветка B: изучаем Realm
+    DemoAction.SendMessage("Какую БД выбрать для офлайн-приложения?")        // итог в ветке B
 )
 
 private val agentColor = Color(0xFF00695C) // teal
@@ -235,13 +239,13 @@ private fun StrategyPanel(
     onSaveCheckpoint: () -> Unit,
     onCreateBranch: (String) -> Unit,
     onSwitchBranch: (String) -> Unit,
-    onRunDemo: (List<String>) -> Unit,
+    onRunDemo: (List<DemoAction>) -> Unit,
     onStopDemo: () -> Unit
 ) {
     var showBranchDialog by remember { mutableStateOf(false) }
     var newBranchName by remember { mutableStateOf("") }
 
-    val demoMessages = when (strategyState.active) {
+    val demoActions = when (strategyState.active) {
         is ContextStrategy.SlidingWindow -> DEMO_SLIDING_WINDOW
         is ContextStrategy.StickyFacts   -> DEMO_STICKY_FACTS
         is ContextStrategy.Branching     -> DEMO_BRANCHING
@@ -304,10 +308,10 @@ private fun StrategyPanel(
                     color = agentColor.copy(alpha = 0.1f),
                     modifier = Modifier
                         .border(1.dp, agentColor.copy(alpha = 0.35f), RoundedCornerShape(50))
-                        .clickable { onRunDemo(demoMessages) }
+                        .clickable { onRunDemo(demoActions) }
                 ) {
                     Text(
-                        text = "▶ Тест (${demoMessages.size})",
+                        text = "▶ Тест (${demoActions.size})",
                         style = MaterialTheme.typography.labelSmall,
                         color = agentColor,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
