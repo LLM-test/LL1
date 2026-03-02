@@ -90,7 +90,7 @@ val appModule = module {
     factory { JudgeUseCase(get(named("deepseekComparison"))) }
     viewModel { ModelComparisonViewModel(get(), get()) }
 
-    // Agent (Day 7: Room persistence, Day 9: context compression)
+    // Agent (Day 7: Room persistence, Day 9: context compression, Day 10: facts)
     single {
         Room.databaseBuilder(androidContext(), AgentDatabase::class.java, "agent-db")
             .fallbackToDestructiveMigration()  // Dev: пересоздаём БД при смене схемы
@@ -98,7 +98,8 @@ val appModule = module {
     }
     single { get<AgentDatabase>().agentMessageDao() }
     single { get<AgentDatabase>().agentContextDao() }
-    single { AgentHistoryRepository(get(), get()) }
+    single { get<AgentDatabase>().agentFactDao() }
+    single { AgentHistoryRepository(get(), get(), get()) }
     single { Agent(get(named("deepseekComparison")), listOf(DateTimeTool(), CalculatorTool()), get()) }
     viewModel { AgentViewModel(get()) }
 }

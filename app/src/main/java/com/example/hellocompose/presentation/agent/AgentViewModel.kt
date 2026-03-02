@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.hellocompose.data.api.dto.MessageDto
 import com.example.hellocompose.domain.agent.Agent
 import com.example.hellocompose.domain.agent.AgentStep
+import com.example.hellocompose.domain.agent.ContextStrategy
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,57 +25,59 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
 
     init {
         viewModelScope.launch {
-            val history = agent.getHistory()
-            val uiMessages = history.toUiMessages()
+            val history  = agent.getHistory()
+            val uiMsgs   = history.toUiMessages()
             val ctxStats = agent.getContextStats().toUiStats()
-            if (uiMessages.isNotEmpty()) {
-                _state.update { it.copy(messages = uiMessages, contextStats = ctxStats) }
+            val strategyState = buildStrategyState()
+            if (uiMsgs.isNotEmpty()) {
+                _state.update { it.copy(messages = uiMsgs, contextStats = ctxStats, strategyState = strategyState) }
                 _effect.send(AgentEffect.ScrollToBottom)
-                Log.d("AgentViewModel", "Restored ${uiMessages.size} UI messages, $ctxStats")
+            } else {
+                _state.update { it.copy(strategyState = strategyState) }
             }
+            Log.d("AgentVM", "Init: ${uiMsgs.size} messages, strategy=${agent.activeStrategy.displayName}")
         }
     }
 
+    // ── Intent handler ────────────────────────────────────────────────────────
+
     fun handleIntent(intent: AgentIntent) {
         when (intent) {
-            is AgentIntent.TypeMessage -> _state.update { it.copy(inputText = intent.text) }
-            is AgentIntent.SendMessage -> sendMessage()
-            is AgentIntent.ClearHistory -> {
-                viewModelScope.launch {
-                    agent.reset()
-                    _state.update {
-                        it.copy(
-                            messages = emptyList(),
-                            inputText = "",
-                            sessionStats = SessionStats(),
-                            contextStats = ContextStats()
-                        )
-                    }
-                }
-            }
+            is AgentIntent.TypeMessage    -> _state.update { it.copy(inputText = intent.text) }
+            is AgentIntent.SendMessage    -> sendMessage()
+            is AgentIntent.ClearHistory   -> clearHistory()
+            is AgentIntent.ChangeStrategy -> changeStrategy(intent.strategy)
+            is AgentIntent.SaveCheckpoint -> saveCheckpoint()
+            is AgentIntent.CreateBranch   -> createBranch(intent.name)
+            is AgentIntent.SwitchBranch   -> switchBranch(intent.branchId)
         }
     }
+
+    // ── Send message ──────────────────────────────────────────────────────────
 
     private fun sendMessage() {
         val text = _state.value.inputText.trim()
         if (text.isBlank() || _state.value.isLoading) return
 
-        val userMsg = AgentMessage.User(text = text)
-        val loadingMsg = AgentMessage.Assistant(isLoading = true)
+        val branchId = agent.activeBranchId
+        val userMsg   = AgentMessage.User(text = text, branchId = branchId)
+        val loadingMsg = AgentMessage.Assistant(isLoading = true, branchId = branchId)
 
         _state.update {
-            it.copy(
-                messages = it.messages + userMsg + loadingMsg,
-                inputText = "",
-                isLoading = true
-            )
+            it.copy(messages = it.messages + userMsg + loadingMsg, inputText = "", isLoading = true)
         }
 
         viewModelScope.launch {
             _effect.send(AgentEffect.ScrollToBottom)
 
+            // Показываем "извлекаем факты..." во время извлечения StickyFacts
+            if (agent.activeStrategy is ContextStrategy.StickyFacts) {
+                _state.update { it.copy(strategyState = it.strategyState.copy(isExtractingFacts = false)) }
+            }
+
             val result = agent.chat(text)
             val ctxStats = agent.getContextStats().toUiStats()
+            val strategyState = buildStrategyState()
 
             _state.update { state ->
                 val updatedStats = state.sessionStats.copy(
@@ -82,29 +85,117 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
                     totalCostUsd = state.sessionStats.totalCostUsd + result.tokenInfo.costUsd,
                     totalExchanges = state.sessionStats.totalExchanges + 1
                 )
-                val updatedMessages = state.messages.dropLast(1) + AgentMessage.Assistant(
+                val updatedMsgs = state.messages.dropLast(1) + AgentMessage.Assistant(
                     text = result.answer,
                     steps = result.steps,
                     isLoading = false,
                     isError = result.isError,
-                    tokenInfo = result.tokenInfo
+                    tokenInfo = result.tokenInfo,
+                    branchId = branchId
                 )
                 state.copy(
-                    messages = updatedMessages,
+                    messages = updatedMsgs,
                     isLoading = false,
                     sessionStats = updatedStats,
-                    contextStats = ctxStats
+                    contextStats = ctxStats,
+                    strategyState = strategyState
                 )
             }
-
             _effect.send(AgentEffect.ScrollToBottom)
-            Log.d("AgentViewModel",
-                "Answer: steps=${result.steps.size}, prompt=${result.tokenInfo.promptTokens}, " +
-                    "completion=${result.tokenInfo.completionTokens}, ctx=$ctxStats")
         }
     }
 
+    // ── Clear ─────────────────────────────────────────────────────────────────
+
+    private fun clearHistory() {
+        viewModelScope.launch {
+            agent.reset()
+            _state.update {
+                it.copy(
+                    messages = emptyList(),
+                    inputText = "",
+                    sessionStats = SessionStats(),
+                    contextStats = ContextStats(),
+                    strategyState = buildStrategyState()
+                )
+            }
+        }
+    }
+
+    // ── Strategy ──────────────────────────────────────────────────────────────
+
+    private fun changeStrategy(strategy: ContextStrategy) {
+        viewModelScope.launch {
+            agent.setStrategy(strategy)
+            // Сбрасываем UI — история остаётся, но факты/ветки очищены
+            _state.update {
+                it.copy(
+                    messages = emptyList(),
+                    sessionStats = SessionStats(),
+                    strategyState = buildStrategyState()
+                )
+            }
+            _effect.send(AgentEffect.ShowToast("Стратегия: ${strategy.displayName}"))
+            Log.d("AgentVM", "Strategy changed to ${strategy.displayName}")
+        }
+    }
+
+    // ── Branching ─────────────────────────────────────────────────────────────
+
+    private fun saveCheckpoint() {
+        agent.saveCheckpoint()
+        _state.update { it.copy(strategyState = buildStrategyState()) }
+        viewModelScope.launch {
+            _effect.send(AgentEffect.ShowToast("Чекпоинт сохранён (${agent.checkpointHistory.size} сообщ.)"))
+        }
+    }
+
+    private fun createBranch(name: String) {
+        val branch = agent.createBranch(name)
+        // Показываем только сообщения текущей ветки
+        val branchMsgs = agent.getActiveBranchHistory().toUiMessages(branch.id)
+        _state.update { it.copy(messages = branchMsgs, strategyState = buildStrategyState()) }
+        viewModelScope.launch {
+            _effect.send(AgentEffect.ShowToast("Ветка '${branch.name}' создана"))
+            _effect.send(AgentEffect.ScrollToBottom)
+        }
+    }
+
+    private fun switchBranch(branchId: String) {
+        agent.switchBranch(branchId)
+        // Перестраиваем UI для новой ветки
+        val msgs = agent.getActiveBranchHistory().toUiMessages(branchId)
+        _state.update { it.copy(messages = msgs, strategyState = buildStrategyState()) }
+        viewModelScope.launch { _effect.send(AgentEffect.ScrollToBottom) }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private fun buildStrategyState(): StrategyState {
+        val s = agent.activeStrategy
+        return StrategyState(
+            active = s,
+            totalMessages = agent.history.size,
+            windowMessages = when (s) {
+                is ContextStrategy.SlidingWindow -> minOf(s.windowSize, agent.getActiveBranchHistory().size)
+                is ContextStrategy.StickyFacts   -> minOf(s.recentWindow, agent.history.size)
+                is ContextStrategy.Branching     -> agent.getActiveBranchHistory().size
+            },
+            facts = agent.facts.toMap(),
+            isExtractingFacts = false,
+            hasCheckpoint = agent.checkpointHistory.isNotEmpty(),
+            checkpointSize = agent.checkpointHistory.size,
+            branches = agent.branches.map { b ->
+                BranchInfo(
+                    id = b.id,
+                    name = b.name,
+                    messageCount = (agent.checkpointHistory + b.messages).size,
+                    isActive = b.id == agent.activeBranchId
+                )
+            },
+            activeBranchId = agent.activeBranchId
+        )
+    }
 
     private fun Agent.ContextStats.toUiStats() = ContextStats(
         compressedCount = compressedCount,
@@ -112,48 +203,46 @@ class AgentViewModel(private val agent: Agent) : ViewModel() {
         isSummaryActive = isSummaryActive,
         summaryLength = summaryLength
     )
+
+    // Expose history size for buildStrategyState
+    private val Agent.history: List<MessageDto>
+        get() = runCatching { getActiveBranchHistory() }.getOrElse { emptyList() }
 }
 
-/**
- * Конвертирует сырую историю API-сообщений в UI-модели.
- * tokenInfo не восстанавливается из Room (не хранится) — будет null у старых сообщений.
- */
-private fun List<MessageDto>.toUiMessages(): List<AgentMessage> {
+// ── toUiMessages ──────────────────────────────────────────────────────────────
+
+private fun List<MessageDto>.toUiMessages(branchId: String = "main"): List<AgentMessage> {
     val result = mutableListOf<AgentMessage>()
     val pendingSteps = mutableListOf<AgentStep>()
-    val pendingToolCalls = mutableMapOf<String, Pair<String, String>>()
+    val pendingCalls = mutableMapOf<String, Pair<String, String>>()
 
     for (msg in this) {
         when (msg.role) {
             "system" -> {}
 
             "user" -> {
-                pendingSteps.clear()
-                pendingToolCalls.clear()
-                result.add(AgentMessage.User(text = msg.content ?: ""))
+                pendingSteps.clear(); pendingCalls.clear()
+                result.add(AgentMessage.User(text = msg.content ?: "", branchId = branchId))
             }
 
             "assistant" -> {
                 if (!msg.toolCalls.isNullOrEmpty()) {
                     msg.toolCalls.forEach { call ->
-                        pendingToolCalls[call.id] = call.function.name to call.function.arguments
+                        pendingCalls[call.id] = call.function.name to call.function.arguments
                     }
                 } else {
-                    result.add(
-                        AgentMessage.Assistant(
-                            text = msg.content ?: "",
-                            steps = pendingSteps.toList(),
-                            tokenInfo = null
-                        )
-                    )
-                    pendingSteps.clear()
-                    pendingToolCalls.clear()
+                    result.add(AgentMessage.Assistant(
+                        text = msg.content ?: "",
+                        steps = pendingSteps.toList(),
+                        branchId = branchId,
+                        tokenInfo = null
+                    ))
+                    pendingSteps.clear(); pendingCalls.clear()
                 }
             }
 
             "tool" -> {
-                val (toolName, arguments) = pendingToolCalls[msg.toolCallId]
-                    ?: ("unknown_tool" to "{}")
+                val (toolName, arguments) = pendingCalls[msg.toolCallId] ?: ("unknown_tool" to "{}")
                 pendingSteps.add(AgentStep(toolName, arguments, msg.content ?: ""))
             }
         }

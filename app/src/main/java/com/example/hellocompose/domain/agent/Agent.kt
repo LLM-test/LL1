@@ -7,15 +7,13 @@ import com.example.hellocompose.data.api.dto.MessageDto
 import com.example.hellocompose.data.repository.AgentHistoryRepository
 
 /**
- * Агент — отдельная сущность, инкапсулирующая логику диалога с LLM.
+ * Агент с поддержкой трёх стратегий управления контекстом (День 10):
  *
- * День 7: история сохраняется в Room.
- * День 8: подсчёт токенов.
- * День 9: сжатие контекста.
- *   - Последние [RECENT_WINDOW] сообщений всегда передаются verbatim.
- *   - Когда некомпрессированных сообщений становится > RECENT_WINDOW + COMPRESS_EVERY,
- *     старый пакет ([COMPRESS_EVERY] сообщений) заменяется summary.
- *   - Summary хранится в Room и восстанавливается при перезапуске.
+ *  • [ContextStrategy.SlidingWindow] — последние N сообщений verbatim, остальное отброшено
+ *  • [ContextStrategy.StickyFacts]  — ключевые факты + последние N сообщений
+ *  • [ContextStrategy.Branching]    — чекпоинт + независимые ветки
+ *
+ * День 9 (Summary/maybeCompress) сохранён, но не вызывается при Day-10 стратегиях.
  */
 class Agent(
     private val apiService: ModelComparisonApiService,
@@ -23,32 +21,42 @@ class Agent(
     private val historyRepository: AgentHistoryRepository
 ) {
     companion object {
-        /** Контекстное окно deepseek-chat: 128K токенов. */
         const val CONTEXT_LIMIT = 131_072
-
-        /** Цена deepseek-chat: $0.14 за млн входных токенов. */
-        private const val PRICE_INPUT = 0.14 / 1_000_000.0
-
-        /** Цена deepseek-chat: $0.28 за млн выходных токенов. */
+        private const val PRICE_INPUT  = 0.14 / 1_000_000.0
         private const val PRICE_OUTPUT = 0.28 / 1_000_000.0
 
-        /** Сколько последних сообщений всегда передаётся verbatim. */
-        const val RECENT_WINDOW = 6
-
-        /** Пакет сжатия: каждые N сообщений превращаются в summary. */
+        // Day 9 (Summary)
+        const val RECENT_WINDOW  = 6
         const val COMPRESS_EVERY = 6
     }
 
+    // ── Базовая история (персистентна в Room) ─────────────────────────────────
     private val history = mutableListOf<MessageDto>()
     private var historyLoaded = false
 
-    /** Сжатое резюме старой части диалога. */
-    private var summary: String = ""
+    // ── Day 9: Summary ────────────────────────────────────────────────────────
+    private var summary = ""
+    private var coveredCount = 0
 
-    /** Сколько сообщений из начала истории уже покрыто summary. */
-    private var coveredCount: Int = 0
+    // ── Day 10: Стратегия ──────────────────────────────────────────────────────
+    var activeStrategy: ContextStrategy = ContextStrategy.SlidingWindow()
+        private set
 
-    // Накопительная статистика за сессию
+    // StickyFacts — факты персистентны в Room
+    val facts = LinkedHashMap<String, String>()
+
+    // Branching — ветки хранятся только в памяти (in-memory)
+    data class BranchData(
+        val id: String,
+        val name: String,
+        val messages: MutableList<MessageDto> = mutableListOf()
+    )
+    var checkpointHistory: List<MessageDto> = emptyList()
+        private set
+    val branches = mutableListOf<BranchData>()
+    var activeBranchId: String = "main"
+        private set
+
     private var sessionPromptTokens = 0
     private var sessionCompletionTokens = 0
 
@@ -58,7 +66,7 @@ class Agent(
         Отвечай на русском языке, кратко и по делу.
     """.trimIndent()
 
-    // ── Инициализация ─────────────────────────────────────────────────────────
+    // ── Загрузка ───────────────────────────────────────────────────────────────
 
     private suspend fun ensureHistoryLoaded() {
         if (historyLoaded) return
@@ -67,9 +75,10 @@ class Agent(
         val (savedSummary, savedCoveredCount) = historyRepository.loadContext()
         summary = savedSummary
         coveredCount = savedCoveredCount
+        val savedFacts = historyRepository.loadFacts()
+        facts.putAll(savedFacts)
         historyLoaded = true
-        Log.d("Agent", "Loaded ${saved.size} messages, coveredCount=$coveredCount, " +
-            "hasSummary=${summary.isNotBlank()}")
+        Log.d("Agent", "Loaded: ${saved.size} msgs, coveredCount=$coveredCount, facts=${facts.size}")
     }
 
     suspend fun getHistory(): List<MessageDto> {
@@ -77,13 +86,13 @@ class Agent(
         return history.toList()
     }
 
-    // ── Статистика контекста ──────────────────────────────────────────────────
+    // ── Статистика (Day 9 совместимость) ──────────────────────────────────────
 
     data class ContextStats(
-        val compressedCount: Int = 0,   // сообщений покрыто summary
-        val recentCount: Int = 0,       // сообщений передаётся verbatim
+        val compressedCount: Int = 0,
+        val recentCount: Int = 0,
         val isSummaryActive: Boolean = false,
-        val summaryLength: Int = 0      // длина текста резюме (символов)
+        val summaryLength: Int = 0
     )
 
     suspend fun getContextStats(): ContextStats {
@@ -96,221 +105,299 @@ class Agent(
         )
     }
 
-    // ── Сброс ─────────────────────────────────────────────────────────────────
+    // ── Управление стратегией ─────────────────────────────────────────────────
+
+    /** Переключает стратегию, сбрасывая strategy-specific state (факты, ветки). */
+    suspend fun setStrategy(strategy: ContextStrategy) {
+        ensureHistoryLoaded()
+        activeStrategy = strategy
+        facts.clear()
+        historyRepository.clearFacts()
+        checkpointHistory = emptyList()
+        branches.clear()
+        activeBranchId = "main"
+        Log.d("Agent", "Strategy → ${strategy.displayName}")
+    }
+
+    // ── Branching API ──────────────────────────────────────────────────────────
+
+    /** Сохраняет текущую историю как чекпоинт, создаёт ветку "main". */
+    fun saveCheckpoint() {
+        checkpointHistory = history.toList()
+        branches.clear()
+        branches.add(BranchData(id = "main", name = "Основная"))
+        activeBranchId = "main"
+        Log.d("Agent", "Checkpoint saved at ${checkpointHistory.size} messages")
+    }
+
+    /** Создаёт новую ветку от чекпоинта и делает её активной. */
+    fun createBranch(name: String): BranchData {
+        val branch = BranchData(id = "branch_${System.currentTimeMillis()}", name = name)
+        branches.add(branch)
+        activeBranchId = branch.id
+        Log.d("Agent", "Branch created: '${branch.name}' id=${branch.id}")
+        return branch
+    }
+
+    /** Переключается на указанную ветку. */
+    fun switchBranch(branchId: String) {
+        activeBranchId = branchId
+        Log.d("Agent", "Switched to branch: $branchId")
+    }
+
+    /** Полная история активной ветки (для UI и построения контекста). */
+    fun getActiveBranchHistory(): List<MessageDto> {
+        if (activeStrategy !is ContextStrategy.Branching || checkpointHistory.isEmpty()) {
+            return history.toList()
+        }
+        val branchMsgs = branches.find { it.id == activeBranchId }?.messages ?: emptyList()
+        return checkpointHistory + branchMsgs
+    }
+
+    // ── Сброс ──────────────────────────────────────────────────────────────────
 
     suspend fun reset() {
         history.clear()
-        summary = ""
-        coveredCount = 0
+        summary = ""; coveredCount = 0
+        facts.clear()
+        checkpointHistory = emptyList(); branches.clear(); activeBranchId = "main"
         historyLoaded = true
-        sessionPromptTokens = 0
-        sessionCompletionTokens = 0
+        sessionPromptTokens = 0; sessionCompletionTokens = 0
         historyRepository.clearHistory()
-        Log.d("Agent", "History, summary and session stats cleared")
+        Log.d("Agent", "Full reset")
     }
 
-    // ── История ───────────────────────────────────────────────────────────────
+    // ── Добавление в историю ───────────────────────────────────────────────────
 
     private suspend fun addToHistory(message: MessageDto) {
-        history.add(message)
-        historyRepository.saveMessage(message)
+        if (activeStrategy is ContextStrategy.Branching && checkpointHistory.isNotEmpty()) {
+            // В режиме веток — в текущую ветку (in-memory, без Room)
+            branches.find { it.id == activeBranchId }?.messages?.add(message)
+        } else {
+            history.add(message)
+            historyRepository.saveMessage(message)
+        }
     }
 
-    // ── Сжатие контекста ─────────────────────────────────────────────────────
+    // ── Построение контекста по стратегии ─────────────────────────────────────
 
-    /**
-     * Сжимает старые сообщения в summary пока
-     * некомпрессированных > [RECENT_WINDOW] + [COMPRESS_EVERY].
-     *
-     * Граница разреза выбирается ТОЛЬКО после финального ответа ассистента
-     * (role="assistant" без tool_calls), чтобы никогда не оставлять
-     * осиротевший role="tool" в начале recent-окна.
-     */
+    private fun buildContextMessages(): List<MessageDto> {
+        val msgs = mutableListOf<MessageDto>()
+        msgs.add(MessageDto(role = "system", content = systemPrompt))
+
+        when (val s = activeStrategy) {
+
+            is ContextStrategy.SlidingWindow -> {
+                val src = getActiveBranchHistory()
+                val window = src.takeLast(s.windowSize)
+                msgs.addAll(window)
+                Log.d("Agent", "SlidingWindow: ${window.size}/${src.size} msgs")
+            }
+
+            is ContextStrategy.StickyFacts -> {
+                if (facts.isNotEmpty()) {
+                    val factsText = facts.entries.joinToString("\n") { (k, v) -> "• $k: $v" }
+                    msgs.add(MessageDto(
+                        role = "system",
+                        content = "📌 Ключевые факты о пользователе и контексте:\n$factsText"
+                    ))
+                }
+                val recent = history.takeLast(s.recentWindow)
+                msgs.addAll(recent)
+                Log.d("Agent", "StickyFacts: ${facts.size} facts + ${recent.size} msgs")
+            }
+
+            is ContextStrategy.Branching -> {
+                val full = getActiveBranchHistory()
+                msgs.addAll(full)
+                Log.d("Agent", "Branching: branch=$activeBranchId, ${full.size} msgs")
+            }
+        }
+        return msgs
+    }
+
+    // ── Day 9: Summary (не вызывается при Day-10 стратегиях) ─────────────────
+
     private suspend fun maybeCompress() {
         while (history.size - coveredCount > RECENT_WINDOW + COMPRESS_EVERY) {
-            // Ищем ближайшую безопасную границу в диапазоне ~COMPRESS_EVERY сообщений
             val searchEnd = minOf(coveredCount + COMPRESS_EVERY + 4, history.size - RECENT_WINDOW)
             val cutPoint = findTurnBoundary(coveredCount + 1, searchEnd)
-
-            if (cutPoint <= coveredCount) break  // нет завершённого хода в диапазоне — ждём
-
+            if (cutPoint <= coveredCount) break
             val batch = history.subList(coveredCount, cutPoint)
-            Log.d("Agent", "Compressing ${batch.size} messages [$coveredCount..$cutPoint)")
             summary = generateSummary(summary, batch)
             coveredCount = cutPoint
             historyRepository.saveContext(summary, coveredCount)
-            Log.d("Agent", "Compression done: coveredCount=$coveredCount, summaryLen=${summary.length}")
         }
     }
 
-    /**
-     * Находит индекс ПОСЛЕ первого финального ответа ассистента в диапазоне [startFrom, maxEnd).
-     *
-     * Финальный ответ = role="assistant" без tool_calls и с непустым content.
-     * Такая граница гарантирует, что следующий за ней блок сообщений
-     * начинается с role="user" или role="assistant" без tool-зависимостей.
-     *
-     * @return индекс после найденного сообщения, или [coveredCount] если граница не найдена.
-     */
     private fun findTurnBoundary(startFrom: Int, maxEnd: Int): Int {
         for (i in startFrom until maxEnd) {
             val msg = history[i]
-            if (msg.role == "assistant" &&
-                msg.toolCalls.isNullOrEmpty() &&
-                !msg.content.isNullOrBlank()
-            ) {
+            if (msg.role == "assistant" && msg.toolCalls.isNullOrEmpty() && !msg.content.isNullOrBlank())
                 return i + 1
-            }
         }
-        return coveredCount  // безопасная граница не найдена
+        return coveredCount
     }
 
-    /**
-     * Генерирует обновлённое резюме на основе существующего + новой порции сообщений.
-     * Использует LLM с низкой температурой для стабильного пересказа.
-     */
     private suspend fun generateSummary(existingSummary: String, messages: List<MessageDto>): String {
         val prompt = buildString {
-            if (existingSummary.isNotBlank()) {
-                appendLine("Существующее резюме диалога:")
-                appendLine(existingSummary)
-                appendLine()
-            }
-            appendLine("Сообщения для включения в резюме:")
-            messages.forEach { msg ->
-                when (msg.role) {
-                    "user" -> appendLine("Пользователь: ${msg.content}")
-                    "assistant" -> if (!msg.content.isNullOrBlank()) appendLine("Ассистент: ${msg.content}")
-                    "tool" -> appendLine("Инструмент вернул: ${msg.content}")
+            if (existingSummary.isNotBlank()) appendLine("Существующее резюме:\n$existingSummary\n")
+            appendLine("Сообщения:")
+            messages.forEach { when (it.role) {
+                "user"      -> appendLine("Пользователь: ${it.content}")
+                "assistant" -> if (!it.content.isNullOrBlank()) appendLine("Ассистент: ${it.content}")
+                "tool"      -> appendLine("Инструмент: ${it.content}")
+            }}
+            append("Создай краткое резюме (до 150 слов). Только текст.")
+        }
+        return try {
+            apiService.chatCompletions(ChatRequestDto(
+                model = "deepseek-chat",
+                messages = listOf(MessageDto(role = "user", content = prompt)),
+                maxTokens = 400, temperature = 0.2f
+            )).choices.first().message.content ?: existingSummary
+        } catch (e: Exception) { existingSummary }
+    }
+
+    // ── StickyFacts: извлечение фактов ────────────────────────────────────────
+
+    private suspend fun extractAndUpdateFacts(userMessage: String, assistantResponse: String) {
+        val currentFacts = if (facts.isEmpty()) "нет"
+            else facts.entries.joinToString("\n") { (k, v) -> "$k: $v" }
+
+        val prompt = """
+            Обнови список ключевых фактов на основе нового обмена.
+
+            Текущие факты:
+            $currentFacts
+
+            Новый обмен:
+            Пользователь: $userMessage
+            Ассистент: $assistantResponse
+
+            Верни ТОЛЬКО список фактов, каждый на новой строке в формате:
+            ключ: значение
+
+            Включай только конкретные факты (имена, числа, решения, предпочтения, договорённости).
+            Не добавляй пояснений. Если нет новых фактов — повтори текущие.
+        """.trimIndent()
+
+        try {
+            val content = apiService.chatCompletions(ChatRequestDto(
+                model = "deepseek-chat",
+                messages = listOf(MessageDto(role = "user", content = prompt)),
+                maxTokens = 300, temperature = 0.1f
+            )).choices.first().message.content ?: return
+
+            val newFacts = LinkedHashMap<String, String>()
+            content.lines().forEach { line ->
+                val idx = line.indexOf(": ")
+                if (idx > 0) {
+                    val key   = line.substring(0, idx).trim().lowercase()
+                    val value = line.substring(idx + 2).trim()
+                    if (key.isNotBlank() && value.isNotBlank()) newFacts[key] = value
                 }
             }
-            append("\nСоздай краткое резюме диалога (до 150 слов). " +
-                "Сохрани ключевые факты, вопросы и ответы. Только текст резюме, без предисловий.")
-        }
-
-        val request = ChatRequestDto(
-            model = "deepseek-chat",
-            messages = listOf(MessageDto(role = "user", content = prompt)),
-            maxTokens = 400,
-            temperature = 0.2f
-        )
-
-        return try {
-            val result = apiService.chatCompletions(request).choices.first().message.content
-            Log.d("Agent", "Summary generated: ${result?.length} chars")
-            result ?: existingSummary
+            if (newFacts.isNotEmpty()) {
+                facts.clear(); facts.putAll(newFacts)
+                historyRepository.clearFacts()
+                newFacts.forEach { (k, v) -> historyRepository.saveFact(k, v) }
+                Log.d("Agent", "Facts updated: ${facts.size}")
+            }
         } catch (e: Exception) {
-            Log.e("Agent", "Summary generation failed: ${e.message}")
-            existingSummary // при ошибке оставляем старое резюме
+            Log.e("Agent", "Facts extraction failed: ${e.message}")
         }
     }
 
-    // ── Основной диалог ───────────────────────────────────────────────────────
+    // ── Основной диалог ────────────────────────────────────────────────────────
 
     suspend fun chat(userMessage: String): AgentResult {
         ensureHistoryLoaded()
-        maybeCompress()  // сжимаем старую историю перед отправкой запроса
 
-        // Строим список сообщений: [system] + [summary?] + [recent messages]
-        val messages = mutableListOf<MessageDto>()
-        messages.add(MessageDto(role = "system", content = systemPrompt))
-
-        if (summary.isNotBlank()) {
-            messages.add(
-                MessageDto(
-                    role = "system",
-                    content = "📝 Краткое изложение предыдущего диалога:\n$summary"
-                )
-            )
-        }
-
-        // Только recent-сообщения (не покрытые summary)
-        messages.addAll(history.drop(coveredCount))
-
-        val userMsg = MessageDto(role = "user", content = userMessage)
+        val messages = buildContextMessages().toMutableList()
+        val userMsg  = MessageDto(role = "user", content = userMessage)
         messages.add(userMsg)
         addToHistory(userMsg)
 
         val toolDefs = tools.map { it.definition }.takeIf { it.isNotEmpty() }
-        val steps = mutableListOf<AgentStep>()
+        val steps    = mutableListOf<AgentStep>()
 
-        var lastPromptTokens = 0
+        var lastPromptTokens      = 0
         var totalCompletionTokens = 0
-        var totalCostAccumulator = 0.0
+        var totalCostAccumulator  = 0.0
 
         return runCatching {
-            var iterations = 0
+            var iterations  = 0
+            var finalAnswer = ""
+
             while (iterations < 5) {
-                val request = ChatRequestDto(
+                val response = apiService.chatCompletions(ChatRequestDto(
                     model = "deepseek-chat",
                     messages = messages.toList(),
                     temperature = 0.7f,
                     maxTokens = 1000,
                     tools = toolDefs
-                )
-                val response = apiService.chatCompletions(request)
+                ))
 
-                response.usage?.let { usage ->
-                    lastPromptTokens = usage.promptTokens
-                    totalCompletionTokens += usage.completionTokens
-                    totalCostAccumulator += usage.promptTokens * PRICE_INPUT +
-                        usage.completionTokens * PRICE_OUTPUT
-                    Log.d("Agent", "API call: prompt=${usage.promptTokens}, completion=${usage.completionTokens}")
+                response.usage?.let { u ->
+                    lastPromptTokens       = u.promptTokens
+                    totalCompletionTokens += u.completionTokens
+                    totalCostAccumulator  += u.promptTokens * PRICE_INPUT + u.completionTokens * PRICE_OUTPUT
                 }
 
                 val choice = response.choices.first()
-                val assistantMessage = choice.message
-                messages.add(assistantMessage)
+                val assistantMsg = choice.message
+                messages.add(assistantMsg)
 
-                if (choice.finishReason == "tool_calls" && !assistantMessage.toolCalls.isNullOrEmpty()) {
-                    addToHistory(assistantMessage)
-                    for (toolCall in assistantMessage.toolCalls) {
-                        val tool = tools.find { it.name == toolCall.function.name }
+                if (choice.finishReason == "tool_calls" && !assistantMsg.toolCalls.isNullOrEmpty()) {
+                    addToHistory(assistantMsg)
+                    for (toolCall in assistantMsg.toolCalls) {
+                        val tool   = tools.find { it.name == toolCall.function.name }
                         val result = tool?.execute(toolCall.function.arguments)
                             ?: "Инструмент '${toolCall.function.name}' не найден"
                         steps.add(AgentStep(toolCall.function.name, toolCall.function.arguments, result))
-                        val toolMessage = MessageDto(
-                            role = "tool",
-                            content = result,
-                            toolCallId = toolCall.id
-                        )
-                        messages.add(toolMessage)
-                        addToHistory(toolMessage)
+                        val toolMsg = MessageDto(role = "tool", content = result, toolCallId = toolCall.id)
+                        messages.add(toolMsg)
+                        addToHistory(toolMsg)
                     }
                     iterations++
                 } else {
-                    val answer = assistantMessage.content ?: ""
-                    addToHistory(assistantMessage)
-
-                    sessionPromptTokens = lastPromptTokens
-                    sessionCompletionTokens += totalCompletionTokens
-
-                    val tokenInfo = TokenInfo(
-                        promptTokens = lastPromptTokens,
-                        completionTokens = totalCompletionTokens,
-                        costUsd = totalCostAccumulator
-                    )
-
-                    Log.d("Agent",
-                        "Turn done: prompt=$lastPromptTokens, completion=$totalCompletionTokens, " +
-                            "cost=\$${String.format("%.6f", totalCostAccumulator)}, steps=${steps.size}, " +
-                            "compressed=$coveredCount, recent=${history.size - coveredCount}")
-
-                    return@runCatching AgentResult(answer = answer, steps = steps, tokenInfo = tokenInfo)
+                    finalAnswer = assistantMsg.content ?: ""
+                    addToHistory(assistantMsg)
+                    break
                 }
             }
-            AgentResult(answer = "Превышен лимит итераций агента.", steps = steps)
+
+            if (iterations >= 5)
+                return@runCatching AgentResult(answer = "Превышен лимит итераций.", steps = steps)
+
+            sessionPromptTokens    = lastPromptTokens
+            sessionCompletionTokens += totalCompletionTokens
+
+            val tokenInfo = TokenInfo(
+                promptTokens      = lastPromptTokens,
+                completionTokens  = totalCompletionTokens,
+                costUsd           = totalCostAccumulator
+            )
+
+            // Обновляем факты после успешного обмена (только StickyFacts)
+            if (activeStrategy is ContextStrategy.StickyFacts && finalAnswer.isNotBlank()) {
+                extractAndUpdateFacts(userMessage, finalAnswer)
+            }
+
+            Log.d("Agent", "Done: ${activeStrategy.displayName}, " +
+                "prompt=$lastPromptTokens, compl=$totalCompletionTokens, steps=${steps.size}")
+
+            AgentResult(answer = finalAnswer, steps = steps, tokenInfo = tokenInfo)
+
         }.getOrElse { error ->
             Log.e("Agent", "Error: ${error.message}")
-            val isContextOverflow = error.message?.contains("context_length", ignoreCase = true) == true ||
-                error.message?.contains("maximum context", ignoreCase = true) == true
-            val errorMsg = if (isContextOverflow) {
-                "⛔ Контекст переполнен! Диалог превысил лимит модели (128K токенов).\n" +
-                    "Очистите историю кнопкой 🗑 и начните новый диалог."
-            } else {
-                error.message ?: "Неизвестная ошибка"
-            }
-            AgentResult(answer = errorMsg, isError = true)
+            val isOverflow = error.message?.contains("context_length", ignoreCase = true) == true
+            AgentResult(
+                answer = if (isOverflow) "⛔ Контекст переполнен! Очистите историю кнопкой 🗑."
+                         else error.message ?: "Неизвестная ошибка",
+                isError = true
+            )
         }
     }
 }

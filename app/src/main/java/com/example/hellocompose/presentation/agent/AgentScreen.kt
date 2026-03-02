@@ -1,5 +1,6 @@
 package com.example.hellocompose.presentation.agent
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
@@ -36,15 +37,18 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -58,12 +62,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.hellocompose.domain.agent.AgentStep
+import com.example.hellocompose.domain.agent.ContextStrategy
 import com.example.hellocompose.domain.agent.TokenInfo
 import com.example.hellocompose.presentation.components.ChatInput
 import kotlinx.coroutines.flow.collectLatest
@@ -71,6 +77,8 @@ import kotlinx.coroutines.flow.collectLatest
 private val agentColor = Color(0xFF00695C) // teal
 private val warnColor = Color(0xFFF57F17)  // amber
 private val dangerColor = Color(0xFFB71C1C) // dark red
+private val branchColor = Color(0xFF2E7D32) // green for branching
+private val factsColor = Color(0xFF1565C0)  // blue for facts
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +88,7 @@ fun AgentScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
+    val context = LocalContext.current
 
     LaunchedEffect(Unit) {
         viewModel.effect.collectLatest { effect ->
@@ -88,6 +97,9 @@ fun AgentScreen(
                     if (state.messages.isNotEmpty()) {
                         listState.animateScrollToItem(state.messages.lastIndex)
                     }
+                }
+                is AgentEffect.ShowToast -> {
+                    Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
                 }
             }
         }
@@ -135,6 +147,15 @@ fun AgentScreen(
             // Строка с доступными инструментами
             ToolsInfoRow()
 
+            // Панель управления стратегиями контекста (Day 10)
+            StrategyPanel(
+                strategyState = state.strategyState,
+                onChangeStrategy = { viewModel.handleIntent(AgentIntent.ChangeStrategy(it)) },
+                onSaveCheckpoint = { viewModel.handleIntent(AgentIntent.SaveCheckpoint) },
+                onCreateBranch = { viewModel.handleIntent(AgentIntent.CreateBranch(it)) },
+                onSwitchBranch = { viewModel.handleIntent(AgentIntent.SwitchBranch(it)) }
+            )
+
             // Панель статистики токенов + компрессии (появляется после первого ответа)
             SessionStatsBar(stats = state.sessionStats, ctxStats = state.contextStats)
 
@@ -163,6 +184,290 @@ fun AgentScreen(
                 onTextChange = { viewModel.handleIntent(AgentIntent.TypeMessage(it)) },
                 onSendClick = { viewModel.handleIntent(AgentIntent.SendMessage) }
             )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Панель выбора стратегии (Day 10)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun StrategyPanel(
+    strategyState: StrategyState,
+    onChangeStrategy: (ContextStrategy) -> Unit,
+    onSaveCheckpoint: () -> Unit,
+    onCreateBranch: (String) -> Unit,
+    onSwitchBranch: (String) -> Unit
+) {
+    var showBranchDialog by remember { mutableStateOf(false) }
+    var newBranchName by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        // Строка выбора стратегии
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Стратегия:",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                fontWeight = FontWeight.SemiBold
+            )
+            val strategies: List<ContextStrategy> = listOf(
+                ContextStrategy.SlidingWindow(),
+                ContextStrategy.StickyFacts(),
+                ContextStrategy.Branching
+            )
+            strategies.forEach { strategy ->
+                val isActive = strategyState.active::class == strategy::class
+                StrategyChip(
+                    label = "${strategy.icon} ${strategy.displayName}",
+                    isActive = isActive,
+                    onClick = { onChangeStrategy(strategy) }
+                )
+            }
+        }
+
+        // Доп. информация по активной стратегии
+        when (strategyState.active) {
+            is ContextStrategy.SlidingWindow -> {
+                if (strategyState.totalMessages > 0) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Окно: ${strategyState.windowMessages} / ${strategyState.totalMessages} сообщений",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    )
+                }
+            }
+            is ContextStrategy.StickyFacts -> {
+                Spacer(Modifier.height(4.dp))
+                if (strategyState.facts.isNotEmpty()) {
+                    FactsPanel(facts = strategyState.facts, isExtracting = strategyState.isExtractingFacts)
+                } else {
+                    Text(
+                        text = "📌 Факты будут извлечены после первого ответа",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+                    )
+                }
+            }
+            is ContextStrategy.Branching -> {
+                Spacer(Modifier.height(6.dp))
+                BranchingPanel(
+                    strategyState = strategyState,
+                    onSaveCheckpoint = onSaveCheckpoint,
+                    onCreateBranch = { showBranchDialog = true },
+                    onSwitchBranch = onSwitchBranch
+                )
+            }
+        }
+    }
+
+    // Диалог создания ветки
+    if (showBranchDialog) {
+        AlertDialog(
+            onDismissRequest = { showBranchDialog = false; newBranchName = "" },
+            title = { Text("Новая ветка") },
+            text = {
+                OutlinedTextField(
+                    value = newBranchName,
+                    onValueChange = { newBranchName = it },
+                    label = { Text("Название ветки") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (newBranchName.isNotBlank()) onCreateBranch(newBranchName.trim())
+                        showBranchDialog = false
+                        newBranchName = ""
+                    }
+                ) { Text("Создать") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBranchDialog = false; newBranchName = "" }) {
+                    Text("Отмена")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun StrategyChip(label: String, isActive: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = if (isActive) agentColor else MaterialTheme.colorScheme.surface,
+        modifier = Modifier
+            .border(
+                1.dp,
+                if (isActive) agentColor else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                RoundedCornerShape(50)
+            )
+            .clickable(enabled = !isActive, onClick = onClick)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isActive) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Панель фактов (StickyFacts)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun FactsPanel(facts: Map<String, String>, isExtracting: Boolean) {
+    var expanded by remember { mutableStateOf(true) }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = factsColor.copy(alpha = 0.07f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, factsColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (isExtracting) "📌 Извлекаем факты..." else "📌 Ключевые факты (${facts.size})",
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = factsColor
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = factsColor.copy(alpha = 0.6f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(modifier = Modifier.padding(start = 10.dp, end = 10.dp, bottom = 8.dp)) {
+                    facts.entries.forEachIndexed { i, (key, value) ->
+                        if (i > 0) Spacer(Modifier.height(3.dp))
+                        Row {
+                            Text(
+                                text = "$key: ",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = factsColor
+                            )
+                            Text(
+                                text = value,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Панель веток (Branching)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun BranchingPanel(
+    strategyState: StrategyState,
+    onSaveCheckpoint: () -> Unit,
+    onCreateBranch: () -> Unit,
+    onSwitchBranch: (String) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Кнопки: чекпоинт и новая ветка
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = branchColor.copy(alpha = 0.1f),
+                modifier = Modifier
+                    .border(1.dp, branchColor.copy(alpha = 0.35f), RoundedCornerShape(50))
+                    .clickable { onSaveCheckpoint() }
+            ) {
+                Text(
+                    text = if (strategyState.hasCheckpoint)
+                        "💾 Чекпоинт (${strategyState.checkpointSize} сообщ.)"
+                    else
+                        "💾 Создать чекпоинт",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = branchColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                )
+            }
+
+            if (strategyState.hasCheckpoint) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = agentColor.copy(alpha = 0.1f),
+                    modifier = Modifier
+                        .border(1.dp, agentColor.copy(alpha = 0.35f), RoundedCornerShape(50))
+                        .clickable { onCreateBranch() }
+                ) {
+                    Text(
+                        text = "🌿 Новая ветка",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = agentColor,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+        }
+
+        // Список веток
+        if (strategyState.branches.isNotEmpty()) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                strategyState.branches.forEach { branch ->
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (branch.isActive) branchColor else MaterialTheme.colorScheme.surface,
+                        modifier = Modifier
+                            .border(
+                                1.dp,
+                                if (branch.isActive) branchColor else branchColor.copy(alpha = 0.4f),
+                                RoundedCornerShape(50)
+                            )
+                            .clickable(enabled = !branch.isActive) { onSwitchBranch(branch.id) }
+                    ) {
+                        Text(
+                            text = "${branch.name} (${branch.messageCount})",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (branch.isActive) Color.White else branchColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

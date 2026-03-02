@@ -3,6 +3,7 @@ package com.example.hellocompose
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -14,6 +15,7 @@ import com.example.hellocompose.presentation.ChatScreen
 import com.example.hellocompose.presentation.ChatViewModel
 import com.example.hellocompose.presentation.agent.AgentScreen
 import com.example.hellocompose.presentation.agent.AgentViewModel
+import com.example.hellocompose.presentation.collapsing.CollapsingToolbarScreen
 import com.example.hellocompose.presentation.expert.ExpertChatScreen
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
 import com.example.hellocompose.presentation.modelcomparison.ModelComparisonScreen
@@ -33,6 +35,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         setContent {
             HelloComposeTheme {
                 Surface(
@@ -51,7 +54,8 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToExperts = { navController.navigate("experts") },
                                 onNavigateToTemperature = { navController.navigate("temperature") },
                                 onNavigateToModelComparison = { navController.navigate("model_comparison") },
-                                onNavigateToAgent = { navController.navigate("agent") }
+                                onNavigateToAgent = { navController.navigate("agent") },
+                                onNavigateToCollapsing = { navController.navigate("collapsing") }
                             )
                         }
                         composable("experts") {
@@ -76,6 +80,11 @@ class MainActivity : ComponentActivity() {
                             AgentScreen(
                                 viewModel = agentViewModel,
                                 onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("collapsing") {
+                            CollapsingToolbarScreen(
+                                onBackClick = { navController.popBackStack() }
                             )
                         }
                     }
