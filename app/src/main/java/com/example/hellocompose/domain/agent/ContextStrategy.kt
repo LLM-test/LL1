@@ -15,7 +15,7 @@ sealed class ContextStrategy {
      * Скользящее окно: передаём только последние [windowSize] сообщений.
      * Старые отбрасываются полностью — дёшево, но теряет детали.
      */
-    data class SlidingWindow(val windowSize: Int = 20) : ContextStrategy() {
+    data class SlidingWindow(val windowSize: Int = 10) : ContextStrategy() {
         override val displayName = "Sliding Window"
         override val icon = "🪟"
         override val shortDescription = "Последние $windowSize сообщений"
