@@ -17,6 +17,7 @@ import com.example.hellocompose.domain.memory.MemoryRepository
 import com.example.hellocompose.domain.profile.ProfileRepository
 import com.example.hellocompose.presentation.memory.MemoryDemoViewModel
 import com.example.hellocompose.presentation.memory.MemoryViewModel
+import com.example.hellocompose.presentation.profile.ProfileDemoViewModel
 import com.example.hellocompose.presentation.profile.ProfileViewModel
 import org.koin.android.ext.koin.androidContext
 import com.example.hellocompose.domain.repository.ChatRepository
@@ -116,4 +117,5 @@ val appModule = module {
     viewModel { MemoryViewModel(get()) }                                          // Day 11
     viewModel { MemoryDemoViewModel(get(), get()) }                               // Day 11 demo
     viewModel { ProfileViewModel(get()) }                                         // Day 12
+    viewModel { ProfileDemoViewModel(get(), get()) }                              // Day 12 demo
 }

@@ -49,6 +49,7 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit = {},
+    onNavigateToDemo: () -> Unit = {},
     viewModel: ProfileViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -74,6 +75,7 @@ fun ProfileScreen(
                     }
                 },
                 actions = {
+                    TextButton(onClick = onNavigateToDemo) { Text("🧪 Демо") }
                     IconButton(onClick = { viewModel.handleIntent(ProfileIntent.Clear) }) {
                         Icon(Icons.Default.DeleteOutline, contentDescription = "Очистить профиль")
                     }

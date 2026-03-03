@@ -23,6 +23,8 @@ import com.example.hellocompose.presentation.expert.ExpertChatScreen
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
 import com.example.hellocompose.presentation.modelcomparison.ModelComparisonScreen
 import com.example.hellocompose.presentation.modelcomparison.ModelComparisonViewModel
+import com.example.hellocompose.presentation.profile.ProfileDemoScreen
+import com.example.hellocompose.presentation.profile.ProfileDemoViewModel
 import com.example.hellocompose.presentation.profile.ProfileScreen
 import com.example.hellocompose.presentation.profile.ProfileViewModel
 import com.example.hellocompose.presentation.temperature.TemperatureChatScreen
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
     private val memoryViewModel: MemoryViewModel by viewModel()
     private val memoryDemoViewModel: MemoryDemoViewModel by viewModel()
     private val profileViewModel: ProfileViewModel by viewModel()             // Day 12
+    private val profileDemoViewModel: ProfileDemoViewModel by viewModel()    // Day 12 demo
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,6 +111,13 @@ class MainActivity : ComponentActivity() {
                         composable("profile") {              // Day 12
                             ProfileScreen(
                                 viewModel = profileViewModel,
+                                onBack = { navController.popBackStack() },
+                                onNavigateToDemo = { navController.navigate("profile_demo") }
+                            )
+                        }
+                        composable("profile_demo") {         // Day 12 demo
+                            ProfileDemoScreen(
+                                viewModel = profileDemoViewModel,
                                 onBack = { navController.popBackStack() }
                             )
                         }
