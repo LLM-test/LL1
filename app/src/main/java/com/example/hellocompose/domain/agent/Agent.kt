@@ -6,6 +6,7 @@ import com.example.hellocompose.data.api.dto.ChatRequestDto
 import com.example.hellocompose.data.api.dto.MessageDto
 import com.example.hellocompose.data.repository.AgentHistoryRepository
 import com.example.hellocompose.domain.memory.MemoryRepository
+import com.example.hellocompose.domain.profile.ProfileRepository
 
 /**
  * Агент с поддержкой трёх стратегий управления контекстом (День 10):
@@ -20,7 +21,8 @@ class Agent(
     private val apiService: ModelComparisonApiService,
     private val tools: List<AgentTool>,
     private val historyRepository: AgentHistoryRepository,
-    private val memoryRepository: MemoryRepository      // Day 11: слои памяти
+    private val memoryRepository: MemoryRepository,     // Day 11: слои памяти
+    private val profileRepository: ProfileRepository    // Day 12: профиль пользователя
 ) {
     companion object {
         const val CONTEXT_LIMIT = 131_072
@@ -88,8 +90,15 @@ class Agent(
         return history.toList()
     }
 
-    /** Day 11: блок памяти, который сейчас вставляется в system prompt. */
-    suspend fun getSystemPromptPreview(): String = memoryRepository.getMemoryPrompt()
+    /** Day 11/12: блоки памяти и профиля, которые сейчас вставляются в system prompt. */
+    suspend fun getSystemPromptPreview(): String {
+        val profilePrompt = profileRepository.getProfilePrompt()
+        val memoryPrompt  = memoryRepository.getMemoryPrompt()
+        return buildString {
+            if (profilePrompt.isNotEmpty()) { append(profilePrompt); if (memoryPrompt.isNotEmpty()) append("\n\n") }
+            append(memoryPrompt)
+        }
+    }
 
     // ── Статистика (Day 9 совместимость) ──────────────────────────────────────
 
@@ -189,10 +198,14 @@ class Agent(
     private suspend fun buildContextMessages(): List<MessageDto> {
         val msgs = mutableListOf<MessageDto>()
 
-        // Day 11: дополняем system prompt долговременной и рабочей памятью
-        val memoryPrompt = memoryRepository.getMemoryPrompt()
-        val fullSystemPrompt = if (memoryPrompt.isEmpty()) systemPrompt
-                               else "$systemPrompt\n\n$memoryPrompt"
+        // Day 12: профиль пользователя + Day 11: слои памяти
+        val profilePrompt = profileRepository.getProfilePrompt()
+        val memoryPrompt  = memoryRepository.getMemoryPrompt()
+        val fullSystemPrompt = buildString {
+            append(systemPrompt)
+            if (profilePrompt.isNotEmpty()) append("\n\n$profilePrompt")
+            if (memoryPrompt.isNotEmpty())  append("\n\n$memoryPrompt")
+        }
         msgs.add(MessageDto(role = "system", content = fullSystemPrompt))
 
         when (val s = activeStrategy) {

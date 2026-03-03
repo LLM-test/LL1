@@ -23,6 +23,8 @@ import com.example.hellocompose.presentation.expert.ExpertChatScreen
 import com.example.hellocompose.presentation.expert.ExpertChatViewModel
 import com.example.hellocompose.presentation.modelcomparison.ModelComparisonScreen
 import com.example.hellocompose.presentation.modelcomparison.ModelComparisonViewModel
+import com.example.hellocompose.presentation.profile.ProfileScreen
+import com.example.hellocompose.presentation.profile.ProfileViewModel
 import com.example.hellocompose.presentation.temperature.TemperatureChatScreen
 import com.example.hellocompose.presentation.temperature.TemperatureChatViewModel
 import com.example.hellocompose.ui.theme.HelloComposeTheme
@@ -37,6 +39,7 @@ class MainActivity : ComponentActivity() {
     private val agentViewModel: AgentViewModel by viewModel()
     private val memoryViewModel: MemoryViewModel by viewModel()
     private val memoryDemoViewModel: MemoryDemoViewModel by viewModel()
+    private val profileViewModel: ProfileViewModel by viewModel()             // Day 12
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,7 +63,8 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToTemperature = { navController.navigate("temperature") },
                                 onNavigateToModelComparison = { navController.navigate("model_comparison") },
                                 onNavigateToAgent = { navController.navigate("agent") },
-                                onNavigateToMemory = { navController.navigate("memory") }
+                                onNavigateToMemory = { navController.navigate("memory") },
+                                onNavigateToProfile = { navController.navigate("profile") }
                             )
                         }
                         composable("experts") {
@@ -99,6 +103,12 @@ class MainActivity : ComponentActivity() {
                             MemoryDemoScreen(
                                 viewModel = memoryDemoViewModel,
                                 onNavigateBack = { navController.popBackStack() }
+                            )
+                        }
+                        composable("profile") {              // Day 12
+                            ProfileScreen(
+                                viewModel = profileViewModel,
+                                onBack = { navController.popBackStack() }
                             )
                         }
                     }

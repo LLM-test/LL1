@@ -6,6 +6,7 @@ import com.example.hellocompose.data.api.DeepSeekApiService
 import com.example.hellocompose.data.api.ModelComparisonApiService
 import com.example.hellocompose.data.db.AgentDatabase
 import com.example.hellocompose.data.memory.MemoryRepositoryImpl
+import com.example.hellocompose.data.profile.ProfileRepositoryImpl
 import com.example.hellocompose.data.repository.AgentHistoryRepository
 import com.example.hellocompose.data.repository.ChatRepositoryImpl
 import com.example.hellocompose.data.repository.ModelComparisonRepositoryImpl
@@ -13,8 +14,10 @@ import com.example.hellocompose.domain.agent.Agent
 import com.example.hellocompose.domain.agent.tools.CalculatorTool
 import com.example.hellocompose.domain.agent.tools.DateTimeTool
 import com.example.hellocompose.domain.memory.MemoryRepository
+import com.example.hellocompose.domain.profile.ProfileRepository
 import com.example.hellocompose.presentation.memory.MemoryDemoViewModel
 import com.example.hellocompose.presentation.memory.MemoryViewModel
+import com.example.hellocompose.presentation.profile.ProfileViewModel
 import org.koin.android.ext.koin.androidContext
 import com.example.hellocompose.domain.repository.ChatRepository
 import com.example.hellocompose.domain.repository.ModelComparisonRepository
@@ -94,7 +97,7 @@ val appModule = module {
     factory { JudgeUseCase(get(named("deepseekComparison"))) }
     viewModel { ModelComparisonViewModel(get(), get()) }
 
-    // Agent (Day 7: Room persistence, Day 9: compression, Day 10: facts, Day 11: memory)
+    // Agent (Day 7: Room persistence, Day 9: compression, Day 10: facts, Day 11: memory, Day 12: profile)
     single {
         Room.databaseBuilder(androidContext(), AgentDatabase::class.java, "agent-db")
             .fallbackToDestructiveMigration()  // Dev: пересоздаём БД при смене схемы
@@ -104,10 +107,13 @@ val appModule = module {
     single { get<AgentDatabase>().agentContextDao() }
     single { get<AgentDatabase>().agentFactDao() }
     single { get<AgentDatabase>().memoryDao() }                                  // Day 11
+    single { get<AgentDatabase>().profileDao() }                                 // Day 12
     single { AgentHistoryRepository(get(), get(), get()) }
     single<MemoryRepository> { MemoryRepositoryImpl(get()) }                     // Day 11
-    single { Agent(get(named("deepseekComparison")), listOf(DateTimeTool(), CalculatorTool()), get(), get()) }
+    single<ProfileRepository> { ProfileRepositoryImpl(get()) }                  // Day 12
+    single { Agent(get(named("deepseekComparison")), listOf(DateTimeTool(), CalculatorTool()), get(), get(), get()) }
     viewModel { AgentViewModel(get()) }
     viewModel { MemoryViewModel(get()) }                                          // Day 11
     viewModel { MemoryDemoViewModel(get(), get()) }                               // Day 11 demo
+    viewModel { ProfileViewModel(get()) }                                         // Day 12
 }

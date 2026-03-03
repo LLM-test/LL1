@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SmartToy
@@ -67,7 +68,8 @@ fun ChatScreen(
     onNavigateToTemperature: () -> Unit = {},
     onNavigateToModelComparison: () -> Unit = {},
     onNavigateToAgent: () -> Unit = {},
-    onNavigateToMemory: () -> Unit = {}
+    onNavigateToMemory: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -101,6 +103,7 @@ fun ChatScreen(
                 onNavigateToTemperature     = { scope.launch { drawerState.close() }; onNavigateToTemperature() },
                 onNavigateToExperts         = { scope.launch { drawerState.close() }; onNavigateToExperts() },
                 onNavigateToMemory          = { scope.launch { drawerState.close() }; onNavigateToMemory() },
+                onNavigateToProfile         = { scope.launch { drawerState.close() }; onNavigateToProfile() },
                 onOpenQuiz                  = { scope.launch { drawerState.close() }; showQuiz = true },
                 onOpenSettings              = { scope.launch { drawerState.close() }; showSettings = true }
             )
@@ -207,6 +210,7 @@ private fun ChatSideMenu(
     onNavigateToTemperature: () -> Unit,
     onNavigateToExperts: () -> Unit,
     onNavigateToMemory: () -> Unit,
+    onNavigateToProfile: () -> Unit,
     onOpenQuiz: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -257,6 +261,12 @@ private fun ChatSideMenu(
             label       = "Память агента",
             description = "Слои памяти + демо",
             onClick     = onNavigateToMemory
+        )
+        DrawerNavItem(
+            icon        = Icons.Default.Person,
+            label       = "Профиль",
+            description = "Персонализация ответов ассистента",
+            onClick     = onNavigateToProfile
         )
 
         Divider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
