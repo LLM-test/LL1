@@ -83,8 +83,8 @@ class MemoryDemoViewModel(
 
     private suspend fun runShortTerm() {
         val initialSteps = listOf(
-            DemoStep("Очищаем историю чата и память (чистый старт)",
-                memoryAction = "agent.reset() + clearByType(WORKING)"),
+            DemoStep("Очищаем историю и всю память (чистый старт)",
+                memoryAction = "agent.reset() + clearByType(WORKING) + clearByType(LONG_TERM)"),
             DemoStep("Представляемся агенту", isChatStep = true,
                 userMessage = "Меня зовут Андрей"),
             DemoStep("Проверяем: агент помнит из истории?", isChatStep = true, isBeforeStep = true,
@@ -98,10 +98,12 @@ class MemoryDemoViewModel(
         )
         setSteps(initialSteps)
 
-        // Шаг 0: сброс
-        runMemoryStep(0, "agent.reset() выполнен — история и рабочая память очищены") {
+        // Шаг 0: сброс (очищаем ВСЕ слои, чтобы прошлые сценарии не мешали)
+        runMemoryStep(0, "agent.reset() + clearByType(WORKING) + clearByType(LONG_TERM)") {
             agent.reset()
             memoryRepo.clearByType(MemoryType.WORKING)
+            memoryRepo.clearByType(MemoryType.LONG_TERM)
+            refreshSystemPrompt()
         }
         // Шаг 1: представляемся
         val introAnswer = runChatStep(1) { agent.chat("Меня зовут Андрей").answer }
@@ -123,8 +125,8 @@ class MemoryDemoViewModel(
 
     private suspend fun runWorking() {
         val initialSteps = listOf(
-            DemoStep("Очищаем историю и рабочую память (чистый старт)",
-                memoryAction = "agent.reset() + clearByType(WORKING)"),
+            DemoStep("Очищаем историю и всю память (чистый старт)",
+                memoryAction = "agent.reset() + clearByType(WORKING) + clearByType(LONG_TERM)"),
             DemoStep("Сохраняем в рабочую память",
                 memoryAction = "save(WORKING, \"task.project\", \"Трекер привычек\")"),
             DemoStep("Проверяем: агент видит рабочую память?", isChatStep = true, isBeforeStep = true,
@@ -138,10 +140,12 @@ class MemoryDemoViewModel(
         )
         setSteps(initialSteps)
 
-        // Шаг 0: сброс
-        runMemoryStep(0, "agent.reset() выполнен — история и рабочая память очищены") {
+        // Шаг 0: сброс (очищаем ВСЕ слои, чтобы прошлые сценарии не мешали)
+        runMemoryStep(0, "agent.reset() + clearByType(WORKING) + clearByType(LONG_TERM)") {
             agent.reset()
             memoryRepo.clearByType(MemoryType.WORKING)
+            memoryRepo.clearByType(MemoryType.LONG_TERM)
+            refreshSystemPrompt()
         }
         // Шаг 1: добавляем в рабочую
         runMemoryStep(1, "Сохранено: task.project = \"Трекер привычек\"") {
@@ -167,8 +171,8 @@ class MemoryDemoViewModel(
 
     private suspend fun runLongTerm() {
         val initialSteps = listOf(
-            DemoStep("Очищаем историю и долговременную память (чистый старт)",
-                memoryAction = "agent.reset() + clearByType(LONG_TERM)"),
+            DemoStep("Очищаем историю и всю память (чистый старт)",
+                memoryAction = "agent.reset() + clearByType(WORKING) + clearByType(LONG_TERM)"),
             DemoStep("Сохраняем в долговременную память",
                 memoryAction = "save(LONG_TERM, \"profile.name\", \"Андрей\")"),
             DemoStep("Очищаем историю чата (долговременную НЕ трогаем)",
@@ -179,10 +183,12 @@ class MemoryDemoViewModel(
         )
         setSteps(initialSteps)
 
-        // Шаг 0: сброс
-        runMemoryStep(0, "agent.reset() выполнен — история и долговременная память очищены") {
+        // Шаг 0: сброс (очищаем ВСЕ слои, чтобы прошлые сценарии не мешали)
+        runMemoryStep(0, "agent.reset() + clearByType(WORKING) + clearByType(LONG_TERM)") {
             agent.reset()
+            memoryRepo.clearByType(MemoryType.WORKING)
             memoryRepo.clearByType(MemoryType.LONG_TERM)
+            refreshSystemPrompt()
         }
         // Шаг 1: добавляем в долговременную
         runMemoryStep(1, "Сохранено: profile.name = \"Андрей\"") {
