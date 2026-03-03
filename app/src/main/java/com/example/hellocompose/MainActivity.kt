@@ -15,6 +15,8 @@ import com.example.hellocompose.presentation.ChatScreen
 import com.example.hellocompose.presentation.ChatViewModel
 import com.example.hellocompose.presentation.agent.AgentScreen
 import com.example.hellocompose.presentation.agent.AgentViewModel
+import com.example.hellocompose.presentation.memory.MemoryDemoScreen
+import com.example.hellocompose.presentation.memory.MemoryDemoViewModel
 import com.example.hellocompose.presentation.memory.MemoryScreen
 import com.example.hellocompose.presentation.memory.MemoryViewModel
 import com.example.hellocompose.presentation.expert.ExpertChatScreen
@@ -34,6 +36,7 @@ class MainActivity : ComponentActivity() {
     private val modelComparisonViewModel: ModelComparisonViewModel by viewModel()
     private val agentViewModel: AgentViewModel by viewModel()
     private val memoryViewModel: MemoryViewModel by viewModel()
+    private val memoryDemoViewModel: MemoryDemoViewModel by viewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -87,6 +90,13 @@ class MainActivity : ComponentActivity() {
                         composable("memory") {
                             MemoryScreen(
                                 viewModel = memoryViewModel,
+                                onNavigateBack = { navController.popBackStack() },
+                                onNavigateToDemo = { navController.navigate("memory_demo") }
+                            )
+                        }
+                        composable("memory_demo") {
+                            MemoryDemoScreen(
+                                viewModel = memoryDemoViewModel,
                                 onNavigateBack = { navController.popBackStack() }
                             )
                         }

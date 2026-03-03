@@ -88,6 +88,9 @@ class Agent(
         return history.toList()
     }
 
+    /** Day 11: блок памяти, который сейчас вставляется в system prompt. */
+    suspend fun getSystemPromptPreview(): String = memoryRepository.getMemoryPrompt()
+
     // ── Статистика (Day 9 совместимость) ──────────────────────────────────────
 
     data class ContextStats(

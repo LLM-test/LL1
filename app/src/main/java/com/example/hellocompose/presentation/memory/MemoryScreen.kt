@@ -71,7 +71,8 @@ private val tabLabels = listOf("💬 Краткосрочная", "🔧 Рабо
 @Composable
 fun MemoryScreen(
     viewModel: MemoryViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToDemo: () -> Unit = {}
 ) {
     val state   by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -92,6 +93,11 @@ fun MemoryScreen(
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    }
+                },
+                actions = {
+                    TextButton(onClick = onNavigateToDemo) {
+                        Text("🧪 Демо")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

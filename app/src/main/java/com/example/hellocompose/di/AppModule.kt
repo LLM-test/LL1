@@ -13,6 +13,7 @@ import com.example.hellocompose.domain.agent.Agent
 import com.example.hellocompose.domain.agent.tools.CalculatorTool
 import com.example.hellocompose.domain.agent.tools.DateTimeTool
 import com.example.hellocompose.domain.memory.MemoryRepository
+import com.example.hellocompose.presentation.memory.MemoryDemoViewModel
 import com.example.hellocompose.presentation.memory.MemoryViewModel
 import org.koin.android.ext.koin.androidContext
 import com.example.hellocompose.domain.repository.ChatRepository
@@ -108,4 +109,5 @@ val appModule = module {
     single { Agent(get(named("deepseekComparison")), listOf(DateTimeTool(), CalculatorTool()), get(), get()) }
     viewModel { AgentViewModel(get()) }
     viewModel { MemoryViewModel(get()) }                                          // Day 11
+    viewModel { MemoryDemoViewModel(get(), get()) }                               // Day 11 demo
 }
