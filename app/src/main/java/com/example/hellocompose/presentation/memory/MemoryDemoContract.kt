@@ -43,6 +43,9 @@ enum class StepStatus { PENDING, RUNNING, DONE }
  * Один шаг guided demo.
  *
  * @param description  Что происходит на этом шаге (показывается пользователю).
+ * @param userMessage  Текст запроса, который был отправлен агенту (null → шаг без запроса).
+ * @param agentResponse Ответ агента (null → ещё не получен или шаг без запроса).
+ * @param memoryAction  Описание операции с памятью (null → шаг без операции с памятью).
  * @param isChatStep   true → шаг делает запрос к агенту, false → операция с памятью/историей.
  * @param isBeforeStep true → ответ попадает в [MemoryDemoState.beforeResponse].
  * @param isAfterStep  true → ответ попадает в [MemoryDemoState.afterResponse].
@@ -51,7 +54,9 @@ enum class StepStatus { PENDING, RUNNING, DONE }
 data class DemoStep(
     val description: String,
     val status: StepStatus = StepStatus.PENDING,
-    val agentResponse: String? = null,
+    val userMessage: String? = null,       // сообщение, отправленное агенту
+    val agentResponse: String? = null,     // ответ агента
+    val memoryAction: String? = null,      // описание операции с памятью/историей
     val isChatStep: Boolean = false,
     val isBeforeStep: Boolean = false,
     val isAfterStep: Boolean = false,

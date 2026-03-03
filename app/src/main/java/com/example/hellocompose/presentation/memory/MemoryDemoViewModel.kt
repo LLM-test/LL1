@@ -83,39 +83,38 @@ class MemoryDemoViewModel(
 
     private suspend fun runShortTerm() {
         val initialSteps = listOf(
-            DemoStep("Очищаем историю чата и память (чистый старт)"),
-            DemoStep("Отправляем агенту: «Меня зовут Андрей»", isChatStep = true),
-            DemoStep("Спрашиваем: «Как меня зовут?»", isChatStep = true, isBeforeStep = true,
+            DemoStep("Очищаем историю чата и память (чистый старт)",
+                memoryAction = "agent.reset() + clearByType(WORKING)"),
+            DemoStep("Представляемся агенту", isChatStep = true,
+                userMessage = "Меня зовут Андрей"),
+            DemoStep("Проверяем: агент помнит из истории?", isChatStep = true, isBeforeStep = true,
+                userMessage = "Как меня зовут?",
                 memoryBadge = "💬 из истории чата"),
-            DemoStep("Очищаем историю чата"),
-            DemoStep("Снова: «Как меня зовут?»", isChatStep = true, isAfterStep = true,
+            DemoStep("Очищаем историю чата",
+                memoryAction = "agent.reset() → история стёрта из RAM"),
+            DemoStep("Проверяем снова: помнит ли без истории?", isChatStep = true, isAfterStep = true,
+                userMessage = "Как меня зовут?",
                 memoryBadge = "❌ агент не помнит")
         )
         setSteps(initialSteps)
 
         // Шаг 0: сброс
-        runStep(0) {
+        runMemoryStep(0, "agent.reset() выполнен — история и рабочая память очищены") {
             agent.reset()
             memoryRepo.clearByType(MemoryType.WORKING)
         }
         // Шаг 1: представляемся
-        runStep(1) {
-            agent.chat("Меня зовут Андрей")
-        }
+        val introAnswer = runChatStep(1) { agent.chat("Меня зовут Андрей").answer }
         // Шаг 2: проверяем ДО
-        val beforeAnswer = runStep(2) {
-            agent.chat("Как меня зовут?").answer
-        }
+        val beforeAnswer = runChatStep(2) { agent.chat("Как меня зовут?").answer }
         _state.update { it.copy(beforeResponse = beforeAnswer) }
 
         // Шаг 3: очищаем историю
-        runStep(3) {
+        runMemoryStep(3, "agent.reset() выполнен — история очищена, долговременная память цела") {
             agent.reset()
         }
         // Шаг 4: проверяем ПОСЛЕ
-        val afterAnswer = runStep(4) {
-            agent.chat("Как меня зовут?").answer
-        }
+        val afterAnswer = runChatStep(4) { agent.chat("Как меня зовут?").answer }
         _state.update { it.copy(afterResponse = afterAnswer,
             conclusion = DemoScenario.SHORT_TERM.conclusion) }
     }
@@ -124,41 +123,42 @@ class MemoryDemoViewModel(
 
     private suspend fun runWorking() {
         val initialSteps = listOf(
-            DemoStep("Очищаем историю и рабочую память (чистый старт)"),
-            DemoStep("Добавляем в рабочую память: task.project = Трекер привычек"),
-            DemoStep("Спрашиваем: «Что я разрабатываю?»", isChatStep = true, isBeforeStep = true,
+            DemoStep("Очищаем историю и рабочую память (чистый старт)",
+                memoryAction = "agent.reset() + clearByType(WORKING)"),
+            DemoStep("Сохраняем в рабочую память",
+                memoryAction = "save(WORKING, \"task.project\", \"Трекер привычек\")"),
+            DemoStep("Проверяем: агент видит рабочую память?", isChatStep = true, isBeforeStep = true,
+                userMessage = "Что я сейчас разрабатываю?",
                 memoryBadge = "🔧 из рабочей памяти"),
-            DemoStep("Очищаем рабочую память"),
-            DemoStep("Снова: «Что я разрабатываю?»", isChatStep = true, isAfterStep = true,
+            DemoStep("Очищаем рабочую память",
+                memoryAction = "clearByType(WORKING) → блок [РАБОЧАЯ ПАМЯТЬ] убран из system prompt"),
+            DemoStep("Проверяем снова: помнит ли без рабочей памяти?", isChatStep = true, isAfterStep = true,
+                userMessage = "Что я сейчас разрабатываю?",
                 memoryBadge = "❌ агент не помнит")
         )
         setSteps(initialSteps)
 
         // Шаг 0: сброс
-        runStep(0) {
+        runMemoryStep(0, "agent.reset() выполнен — история и рабочая память очищены") {
             agent.reset()
             memoryRepo.clearByType(MemoryType.WORKING)
         }
         // Шаг 1: добавляем в рабочую
-        runStep(1) {
+        runMemoryStep(1, "Сохранено: task.project = \"Трекер привычек\"") {
             memoryRepo.save(MemoryType.WORKING, "task.project", "Трекер привычек")
             refreshSystemPrompt()
         }
         // Шаг 2: проверяем ДО
-        val beforeAnswer = runStep(2) {
-            agent.chat("Что я сейчас разрабатываю?").answer
-        }
+        val beforeAnswer = runChatStep(2) { agent.chat("Что я сейчас разрабатываю?").answer }
         _state.update { it.copy(beforeResponse = beforeAnswer) }
 
         // Шаг 3: очищаем рабочую
-        runStep(3) {
+        runMemoryStep(3, "Рабочая память очищена — блок [РАБОЧАЯ ПАМЯТЬ] больше не инжектируется") {
             memoryRepo.clearByType(MemoryType.WORKING)
             refreshSystemPrompt()
         }
         // Шаг 4: проверяем ПОСЛЕ
-        val afterAnswer = runStep(4) {
-            agent.chat("Что я сейчас разрабатываю?").answer
-        }
+        val afterAnswer = runChatStep(4) { agent.chat("Что я сейчас разрабатываю?").answer }
         _state.update { it.copy(afterResponse = afterAnswer,
             conclusion = DemoScenario.WORKING.conclusion) }
     }
@@ -167,32 +167,34 @@ class MemoryDemoViewModel(
 
     private suspend fun runLongTerm() {
         val initialSteps = listOf(
-            DemoStep("Очищаем историю и долговременную память (чистый старт)"),
-            DemoStep("Добавляем в долговременную: profile.name = Андрей"),
-            DemoStep("Очищаем историю чата (память не трогаем)"),
-            DemoStep("Спрашиваем: «Как меня зовут?»", isChatStep = true, isAfterStep = true,
+            DemoStep("Очищаем историю и долговременную память (чистый старт)",
+                memoryAction = "agent.reset() + clearByType(LONG_TERM)"),
+            DemoStep("Сохраняем в долговременную память",
+                memoryAction = "save(LONG_TERM, \"profile.name\", \"Андрей\")"),
+            DemoStep("Очищаем историю чата (долговременную НЕ трогаем)",
+                memoryAction = "agent.reset() → только история, память цела"),
+            DemoStep("Проверяем: агент знает имя без истории?", isChatStep = true, isAfterStep = true,
+                userMessage = "Как меня зовут?",
                 memoryBadge = "🧠 из долговременной памяти")
         )
         setSteps(initialSteps)
 
         // Шаг 0: сброс
-        runStep(0) {
+        runMemoryStep(0, "agent.reset() выполнен — история и долговременная память очищены") {
             agent.reset()
             memoryRepo.clearByType(MemoryType.LONG_TERM)
         }
         // Шаг 1: добавляем в долговременную
-        runStep(1) {
+        runMemoryStep(1, "Сохранено: profile.name = \"Андрей\"") {
             memoryRepo.save(MemoryType.LONG_TERM, "profile.name", "Андрей")
             refreshSystemPrompt()
         }
         // Шаг 2: очищаем историю
-        runStep(2) {
+        runMemoryStep(2, "История очищена — долговременная память осталась в system prompt") {
             agent.reset()
         }
         // Шаг 3: ключевой момент — агент знает без истории
-        val answer = runStep(3) {
-            agent.chat("Как меня зовут?").answer
-        }
+        val answer = runChatStep(3) { agent.chat("Как меня зовут?").answer }
         _state.update { it.copy(afterResponse = answer,
             conclusion = DemoScenario.LONG_TERM.conclusion) }
     }
@@ -203,27 +205,58 @@ class MemoryDemoViewModel(
         _state.update { it.copy(steps = steps) }
     }
 
-    /** Устанавливает шаг в RUNNING, выполняет блок, устанавливает DONE. Возвращает результат. */
+    /** Универсальный шаг (без ответа/операции). */
     private suspend fun <T> runStep(index: Int, block: suspend () -> T): T {
-        updateStepStatus(index, StepStatus.RUNNING)
+        updateStep(index, StepStatus.RUNNING)
         return try {
             val result = block()
-            updateStepStatus(index, StepStatus.DONE)
+            updateStep(index, StepStatus.DONE)
             result
         } catch (e: Exception) {
-            updateStepStatus(index, StepStatus.DONE)
+            updateStep(index, StepStatus.DONE)
             throw e
         }
     }
 
-    private fun updateStepStatus(index: Int, status: StepStatus, response: String? = null) {
+    /** Чат-шаг: сохраняет ответ агента прямо в DemoStep.agentResponse. */
+    private suspend fun runChatStep(index: Int, block: suspend () -> String): String {
+        updateStep(index, StepStatus.RUNNING)
+        return try {
+            val answer = block()
+            updateStep(index, StepStatus.DONE, agentResponse = answer)
+            answer
+        } catch (e: Exception) {
+            updateStep(index, StepStatus.DONE)
+            throw e
+        }
+    }
+
+    /** Шаг с операцией над памятью: сохраняет описание операции в DemoStep.memoryAction. */
+    private suspend fun runMemoryStep(index: Int, action: String, block: suspend () -> Unit) {
+        updateStep(index, StepStatus.RUNNING)
+        try {
+            block()
+            updateStep(index, StepStatus.DONE, memoryAction = action)
+        } catch (e: Exception) {
+            updateStep(index, StepStatus.DONE, memoryAction = action)
+            throw e
+        }
+    }
+
+    private fun updateStep(
+        index: Int,
+        status: StepStatus,
+        agentResponse: String? = null,
+        memoryAction: String? = null
+    ) {
         _state.update { s ->
             val updated = s.steps.toMutableList()
             if (index < updated.size) {
                 val old = updated[index]
                 updated[index] = old.copy(
-                    status = status,
-                    agentResponse = response ?: old.agentResponse
+                    status        = status,
+                    agentResponse = agentResponse ?: old.agentResponse,
+                    memoryAction  = memoryAction  ?: old.memoryAction
                 )
             }
             s.copy(steps = updated)

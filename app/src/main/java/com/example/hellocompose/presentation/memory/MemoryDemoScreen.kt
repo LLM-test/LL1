@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -298,35 +299,105 @@ private fun StepRow(index: Int, step: DemoStep, total: Int) {
             )
         }
         Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Заголовок шага
             Text(
                 text = "${index + 1}/$total — ${step.description}",
                 style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (step.status == StepStatus.RUNNING) FontWeight.SemiBold else FontWeight.Normal,
                 color = if (step.status == StepStatus.PENDING)
                     MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                 else MaterialTheme.colorScheme.onSurface
             )
-            // Badge источника памяти
-            if (step.status == StepStatus.DONE && step.memoryBadge != null) {
-                val badgeColor = when {
-                    step.memoryBadge.startsWith("❌") -> Color(0xFFB71C1C)
-                    step.memoryBadge.startsWith("💬") -> shortTermColor
-                    step.memoryBadge.startsWith("🔧") -> workingColor
-                    else -> longTermColor
+
+            if (step.status == StepStatus.DONE) {
+                // Операция с памятью
+                if (step.memoryAction != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Settings, contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                        Text(
+                            step.memoryAction,
+                            fontSize = 10.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        )
+                    }
                 }
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = badgeColor.copy(alpha = 0.12f),
-                    modifier = Modifier
-                        .padding(top = 3.dp)
-                        .border(1.dp, badgeColor.copy(alpha = 0.3f), RoundedCornerShape(50))
-                ) {
-                    Text(
-                        step.memoryBadge,
-                        fontSize = 10.sp,
-                        color = badgeColor,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                    )
+
+                // Запрос пользователя
+                if (step.userMessage != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text("👤", fontSize = 11.sp)
+                            Text(
+                                step.userMessage,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                // Ответ агента
+                if (step.agentResponse != null) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text("🤖", fontSize = 11.sp)
+                            Text(
+                                step.agentResponse,
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                lineHeight = 16.sp
+                            )
+                        }
+                    }
+                }
+
+                // Badge источника памяти
+                if (step.memoryBadge != null) {
+                    val badgeColor = when {
+                        step.memoryBadge.startsWith("❌") -> Color(0xFFB71C1C)
+                        step.memoryBadge.startsWith("💬") -> shortTermColor
+                        step.memoryBadge.startsWith("🔧") -> workingColor
+                        else -> longTermColor
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = badgeColor.copy(alpha = 0.12f),
+                        modifier = Modifier.border(1.dp, badgeColor.copy(alpha = 0.3f), RoundedCornerShape(50))
+                    ) {
+                        Text(
+                            step.memoryBadge,
+                            fontSize = 10.sp,
+                            color = badgeColor,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }
