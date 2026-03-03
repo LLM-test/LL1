@@ -37,13 +37,19 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -51,13 +57,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -122,6 +131,8 @@ fun AgentScreen(
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
     val context = LocalContext.current
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         viewModel.effect.collectLatest { effect ->
@@ -138,6 +149,22 @@ fun AgentScreen(
         }
     }
 
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            AgentSideMenu(
+                hasHistory     = state.messages.isNotEmpty(),
+                onMemory       = {
+                    scope.launch { drawerState.close() }
+                    onNavigateToMemory()
+                },
+                onClearHistory = {
+                    scope.launch { drawerState.close() }
+                    viewModel.handleIntent(AgentIntent.ClearHistory)
+                }
+            )
+        }
+    ) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -156,20 +183,12 @@ fun AgentScreen(
                     }
                 },
                 actions = {
-                    // Day 11: кнопка перехода к экрану памяти
-                    IconButton(onClick = onNavigateToMemory) {
-                        Text("🧠", fontSize = 20.sp)
-                    }
-                    if (state.messages.isNotEmpty()) {
-                        IconButton(onClick = {
-                            viewModel.handleIntent(AgentIntent.ClearHistory)
-                        }) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteOutline,
-                                contentDescription = "Очистить",
-                                tint = Color.White
-                            )
-                        }
+                    IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Меню",
+                            tint = Color.White
+                        )
                     }
                 }
             )
@@ -227,6 +246,79 @@ fun AgentScreen(
                 onSendClick = { viewModel.handleIntent(AgentIntent.SendMessage) }
             )
         }
+    }
+    } // ModalNavigationDrawer
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Боковое меню агента (Day 11)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@Composable
+private fun AgentSideMenu(
+    hasHistory: Boolean,
+    onMemory: () -> Unit,
+    onClearHistory: () -> Unit
+) {
+    ModalDrawerSheet {
+        // Заголовок
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(agentColor)
+                .padding(horizontal = 20.dp, vertical = 24.dp)
+        ) {
+            Text("🤖 Агент", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color.White)
+            Spacer(Modifier.height(2.dp))
+            Text("Управление и настройки", fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.75f))
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // 🧠 Память
+        NavigationDrawerItem(
+            icon  = { Text("🧠", fontSize = 20.sp) },
+            label = {
+                Column {
+                    Text("Память", fontWeight = FontWeight.SemiBold)
+                    Text("Рабочая и долговременная память", fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                }
+            },
+            selected = false,
+            onClick  = onMemory,
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
+
+        Divider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
+
+        // 🗑 Очистить историю
+        NavigationDrawerItem(
+            icon  = {
+                Icon(
+                    Icons.Default.DeleteOutline,
+                    contentDescription = null,
+                    tint = if (hasHistory) MaterialTheme.colorScheme.error
+                           else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                )
+            },
+            label = {
+                Column {
+                    Text(
+                        "Очистить историю",
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (hasHistory) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+                    )
+                    Text("Удалить все сообщения сеанса", fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f))
+                }
+            },
+            selected = false,
+            onClick  = { if (hasHistory) onClearHistory() },
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+        )
     }
 }
 
