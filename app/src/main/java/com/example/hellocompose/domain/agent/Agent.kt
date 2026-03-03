@@ -5,6 +5,7 @@ import com.example.hellocompose.data.api.ModelComparisonApiService
 import com.example.hellocompose.data.api.dto.ChatRequestDto
 import com.example.hellocompose.data.api.dto.MessageDto
 import com.example.hellocompose.data.repository.AgentHistoryRepository
+import com.example.hellocompose.domain.memory.MemoryRepository
 
 /**
  * Агент с поддержкой трёх стратегий управления контекстом (День 10):
@@ -18,7 +19,8 @@ import com.example.hellocompose.data.repository.AgentHistoryRepository
 class Agent(
     private val apiService: ModelComparisonApiService,
     private val tools: List<AgentTool>,
-    private val historyRepository: AgentHistoryRepository
+    private val historyRepository: AgentHistoryRepository,
+    private val memoryRepository: MemoryRepository      // Day 11: слои памяти
 ) {
     companion object {
         const val CONTEXT_LIMIT = 131_072
@@ -181,9 +183,14 @@ class Agent(
 
     // ── Построение контекста по стратегии ─────────────────────────────────────
 
-    private fun buildContextMessages(): List<MessageDto> {
+    private suspend fun buildContextMessages(): List<MessageDto> {
         val msgs = mutableListOf<MessageDto>()
-        msgs.add(MessageDto(role = "system", content = systemPrompt))
+
+        // Day 11: дополняем system prompt долговременной и рабочей памятью
+        val memoryPrompt = memoryRepository.getMemoryPrompt()
+        val fullSystemPrompt = if (memoryPrompt.isEmpty()) systemPrompt
+                               else "$systemPrompt\n\n$memoryPrompt"
+        msgs.add(MessageDto(role = "system", content = fullSystemPrompt))
 
         when (val s = activeStrategy) {
 

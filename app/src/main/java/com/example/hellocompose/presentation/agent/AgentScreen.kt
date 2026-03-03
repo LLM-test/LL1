@@ -116,7 +116,8 @@ private val factsColor = Color(0xFF1565C0)  // blue for facts
 @Composable
 fun AgentScreen(
     viewModel: AgentViewModel,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onNavigateToMemory: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -155,6 +156,10 @@ fun AgentScreen(
                     }
                 },
                 actions = {
+                    // Day 11: кнопка перехода к экрану памяти
+                    IconButton(onClick = onNavigateToMemory) {
+                        Text("🧠", fontSize = 20.sp)
+                    }
                     if (state.messages.isNotEmpty()) {
                         IconButton(onClick = {
                             viewModel.handleIntent(AgentIntent.ClearHistory)
