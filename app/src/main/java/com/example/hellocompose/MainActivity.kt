@@ -59,7 +59,8 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToExperts = { navController.navigate("experts") },
                                 onNavigateToTemperature = { navController.navigate("temperature") },
                                 onNavigateToModelComparison = { navController.navigate("model_comparison") },
-                                onNavigateToAgent = { navController.navigate("agent") }
+                                onNavigateToAgent = { navController.navigate("agent") },
+                                onNavigateToMemory = { navController.navigate("memory") }
                             )
                         }
                         composable("experts") {

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.automirrored.filled.CompareArrows
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Tune
@@ -65,7 +66,8 @@ fun ChatScreen(
     onNavigateToExperts: () -> Unit = {},
     onNavigateToTemperature: () -> Unit = {},
     onNavigateToModelComparison: () -> Unit = {},
-    onNavigateToAgent: () -> Unit = {}
+    onNavigateToAgent: () -> Unit = {},
+    onNavigateToMemory: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val listState = rememberLazyListState()
@@ -98,6 +100,7 @@ fun ChatScreen(
                 onNavigateToModelComparison = { scope.launch { drawerState.close() }; onNavigateToModelComparison() },
                 onNavigateToTemperature     = { scope.launch { drawerState.close() }; onNavigateToTemperature() },
                 onNavigateToExperts         = { scope.launch { drawerState.close() }; onNavigateToExperts() },
+                onNavigateToMemory          = { scope.launch { drawerState.close() }; onNavigateToMemory() },
                 onOpenQuiz                  = { scope.launch { drawerState.close() }; showQuiz = true },
                 onOpenSettings              = { scope.launch { drawerState.close() }; showSettings = true }
             )
@@ -203,6 +206,7 @@ private fun ChatSideMenu(
     onNavigateToModelComparison: () -> Unit,
     onNavigateToTemperature: () -> Unit,
     onNavigateToExperts: () -> Unit,
+    onNavigateToMemory: () -> Unit,
     onOpenQuiz: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
@@ -247,6 +251,12 @@ private fun ChatSideMenu(
             label       = "Эксперты",
             description = "Диалог с персонажами",
             onClick     = onNavigateToExperts
+        )
+        DrawerNavItem(
+            icon        = Icons.Default.Psychology,
+            label       = "Память агента",
+            description = "Слои памяти + демо",
+            onClick     = onNavigateToMemory
         )
 
         Divider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
